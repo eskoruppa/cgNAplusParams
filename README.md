@@ -1,6 +1,6 @@
 # cgNAplusParams
 
-Python interface to the [cgDNA+](https://cgdnaplus.epfl.ch) and cgRNA+ coarse-grained nucleic acid model parameter sets. Given a DNA or RNA sequence it returns the sequence-dependent groundstate rigid-body parameters and stiffness matrix, and can build a full SE(3) pose chain for 3-D structure visualisation.
+Python interface to the [cgDNA+](#ref-cgnaplus) and cgRNA+ coarse-grained nucleic acid model parameter sets. Given a DNA or RNA sequence it returns the sequence-dependent groundstate rigid-body parameters and stiffness matrix, and can build a full SE(3) pose chain for 3-D structure visualisation.
 
 ## What it does
 
