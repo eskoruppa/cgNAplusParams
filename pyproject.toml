@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cgnaplusparams"
+version = "0.1.0"
+description = "cgDNA+ and cgRNA+ coarse-grained DNA/RNA parameter sets and groundstate/stiffness computation"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "numba",
+    "so3 @ git+https://github.com/eskoruppa/SO3.git",
+    "pycondec @ git+https://github.com/eskoruppa/pyConDec.git",
+]
+
+[project.urls]
+Repository = "https://github.com/eskoruppa/cgNAplusParams"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cgnaplusparams*"]
+
+[tool.setuptools.package-data]
+cgnaplusparams = [
+    "Parametersets/*.mat",
+    "Parametersets/*.txt",
+    "Parametersets/README",
+    "io/database/**/*",
+]
