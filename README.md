@@ -28,7 +28,7 @@ from cgnaplusparams import cgnaplus2rbp, build_conf
 sequence = "ATACGCTTGCATGC"
 
 # Groundstate rigid-body parameters and stiffness matrix
-result = cgnaplus2rbp(sequence)
+result = cgnaplus2rbp(sequence,include_stiffness=True)
 gs     = result["gs"]      # (nbp-1, 6) rigid-body parameters
 stiff  = result["stiff"]   # (6*(nbp-1), 6*(nbp-1)) stiffness matrix
 
