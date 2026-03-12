@@ -155,7 +155,7 @@ def gen_pdb(
     """
     positions needs to be in nm!
     """
-    print(poses.shape)
+
     positions = poses[:, :3, 3]
     triads = poses[:, :3, :3]
 
