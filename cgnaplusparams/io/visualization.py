@@ -311,8 +311,6 @@ def poses2pdb(
         fn = fn.with_suffix('.pdb')
     if len(poses) != len(seq):
         raise ValueError(f'Dimension of poses ({poses.shape}) and seq ({len(seq)}) do not match.')
-    
-    print(poses.shape)
     gen_pdb(str(fn), poses, sequence=seq, center=False)
     
     
