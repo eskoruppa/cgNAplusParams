@@ -7,8 +7,9 @@ from ._pycondec import cond_jit
 
 from .rbp_conf import _build_first_pose, _build_chain
 from .utils.assignment_utils import inter_bp_dof_indices, intra_bp_dof_indices, watson_phosphate_dof_indices, crick_phosphate_dof_indices
-from .utils.assignment_utils import INTER_BP_PARAM_NAME, INTRA_BP_PARAM_NAME, B2P_WATSON_PARAM_NAME, B2P_CRICK_PARAM_NAME
 from .utils.assignment_utils import dof_index
+from .naming_conventions import INTER_BP_PARAM_NAME, INTRA_BP_PARAM_NAME, B2P_WATSON_PARAM_NAME, B2P_CRICK_PARAM_NAME
+from .naming_conventions import WATSON_BASE_NAME, CRICK_BASE_NAME, WATSON_PHOSPHATE_NAME, CRICK_PHOSPHATE_NAME, BP_NAME
 
 
 class cgNAplusConf:
@@ -40,17 +41,17 @@ class cgNAplusConf:
         """Set attributes like self.inter_bp_poses, self.intra_bp_poses, etc. based on the param_names."""
         self.named_poses = {}
         for i, pose in enumerate(self.bp_poses):
-            self.named_poses[f"{INTER_BP_PARAM_NAME}{i}"] = pose
+            self.named_poses[f"{BP_NAME}{i}"] = pose
         for i, pose in enumerate(self.watson_base_poses):
-            self.named_poses[f"{INTRA_BP_PARAM_NAME}{i}"] = pose
+            self.named_poses[f"{WATSON_BASE_NAME}{i}"] = pose
         for i, pose in enumerate(self.crick_base_poses):
-            self.named_poses[f"{INTRA_BP_PARAM_NAME}{i}"] = pose
+            self.named_poses[f"{CRICK_BASE_NAME}{i}"] = pose
         for i, pose in enumerate(self.watson_phosphate_poses):
             if np.any(pose):  # Check if the pose is not all zeros (i.e., it is contained)
-                self.named_poses[f"{B2P_WATSON_PARAM_NAME}{i}"] = pose
+                self.named_poses[f"{WATSON_PHOSPHATE_NAME}{i}"] = pose
         for i, pose in enumerate(self.crick_phosphate_poses):
             if np.any(pose):  # Check if the pose is not all zeros (i.e., it is contained)
-                self.named_poses[f"{B2P_CRICK_PARAM_NAME}{i}"] = pose
+                self.named_poses[f"{CRICK_PHOSPHATE_NAME}{i}"] = pose
 
 
 
