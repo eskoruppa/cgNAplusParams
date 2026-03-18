@@ -304,8 +304,6 @@ def junction_mapper(first_name: str, second_name: str, param_names: list[str]) -
     }
 
 
-
-
 if __name__ == "__main__":
 
     first_name = "bw0"

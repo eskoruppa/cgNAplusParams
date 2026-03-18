@@ -11,6 +11,48 @@ from .utils.assignment_utils import INTER_BP_PARAM_NAME, INTRA_BP_PARAM_NAME, B2
 from .utils.assignment_utils import dof_index
 
 
+class cgNAplusConf:
+
+    def __init__(
+        self,
+        cgnap: dict[str, np.ndarray | bool | str],
+        orientation: np.ndarray | list | tuple = np.array([0.0, 0.0, 1.0]),
+        origin: np.ndarray | list | tuple = np.zeros(3),
+    ) -> None:
+        self.cgnap = cgnap
+        self.orientation = orientation
+        self.origin = origin
+        self.conf = cgnaplus_conf(cgnap, orientation=orientation, origin=origin)
+
+        self.poses = self.conf["poses"]
+        self.bp_poses = self.conf["bp_poses"]
+        self.watson_base_poses = self.conf["watson_base_poses"]
+        self.crick_base_poses = self.conf["crick_base_poses"]
+        self.watson_phosphate_poses = self.conf["watson_phosphate_poses"]
+        self.crick_phosphate_poses = self.conf["crick_phosphate_poses"]
+        self._set_named_poses()
+
+    def _set_named_poses(self) -> None:
+        """Set attributes like self.inter_bp_poses, self.intra_bp_poses, etc. based on the param_names."""
+        self.named_poses = {}
+        for i, pose in enumerate(self.bp_poses):
+            self.named_poses[f"{INTER_BP_PARAM_NAME}{i}"] = pose
+        for i, pose in enumerate(self.watson_base_poses):
+            self.named_poses[f"{INTRA_BP_PARAM_NAME}{i}"] = pose
+        for i, pose in enumerate(self.crick_base_poses):
+            self.named_poses[f"{INTRA_BP_PARAM_NAME}{i}"] = pose
+        for i, pose in enumerate(self.watson_phosphate_poses):
+            if np.any(pose):  # Check if the pose is not all zeros (i.e., it is contained)
+                self.named_poses[f"{B2P_WATSON_PARAM_NAME}{i}"] = pose
+        for i, pose in enumerate(self.crick_phosphate_poses):
+            if np.any(pose):  # Check if the pose is not all zeros (i.e., it is contained)
+                self.named_poses[f"{B2P_CRICK_PARAM_NAME}{i}"] = pose
+
+
+
+
+
+
 def cgnaplus_conf(
         cgnap: dict[str, np.ndarray | bool | str],
         orientation: np.ndarray | list | tuple = np.array([0.0, 0.0, 1.0]),
