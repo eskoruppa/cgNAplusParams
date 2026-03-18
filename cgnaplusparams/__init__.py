@@ -23,3 +23,4 @@ from .io.pdb import gen_pdb
 
 from .io.visualize_rbp import visualize_chimerax
 from .io.visualize_cgnaplus import visualize_cgnaplus
+from .observables.curvature import curvature
