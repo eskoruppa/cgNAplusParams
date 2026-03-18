@@ -20,6 +20,8 @@ from .rbp_conf import rbp_conf
 from .cgnaplus_conf import cgnaplus_conf
 
 from .io.pdb import gen_pdb
-
 from .io.visualize_rbp import visualize_chimerax
 from .io.visualize_cgnaplus import visualize_cgnaplus
+
+from .junction_connector import junction_mapper, vertices2junctions
+
