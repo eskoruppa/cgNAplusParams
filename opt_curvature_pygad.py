@@ -9,8 +9,8 @@ from cgnaplusparams import visualize_chimerax
 from cgnaplusparams import curvature
 import time
 
-nbp = 40
-TARGET_CURVATURE = 0.07
+nbp = 35
+TARGET_CURVATURE = 0.08
 
 base_fn = 'Curvature/test'
 
@@ -46,10 +46,18 @@ if __name__ == "__main__":
     ga = pygad.GA(
         fitness_func=fitness_func,
         num_genes=nbp,
-        sol_per_pop=100,
-        num_generations=200,
-        num_parents_mating=40,
-        gene_space=[0, 1, 2, 3],
+        sol_per_pop=400,
+        num_generations=300,
+        num_parents_mating=100, # 20-50% of sol_per_pop
+        gene_space=[0,1,2,3],
+        parent_selection_type="tournament",
+        K_tournament=7,
+        keep_parents=2,
+        crossover_type="two_points",
+        mutation_type="random", # Random base swaps
+        mutation_percent_genes=5,
+        mutation_by_replacement=True,
+        stop_criteria=["saturate_50"]
     )
 
     t1 = time.time()
@@ -73,3 +81,5 @@ if __name__ == "__main__":
     t2 = time.time()
 
     print(f"Time taken: {t2 - t1:.5f} seconds total")
+
+#    ga.plot_fitness()
