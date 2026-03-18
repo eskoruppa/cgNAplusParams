@@ -15,6 +15,14 @@ from cgnaplusparams import curvature
 nbp = 35
 TARGET_CURVATURE = 0.08
 base_fn = 'Curvature/test'
+
+NTERM = 100
+POP_SIZE = 400
+NGEN = 300
+CXPB = 0.5
+MUTPB = 1.00
+NHOF = 2
+
 BASE_MAPPING = ['A', 'C', 'G', 'T']
 
 # DEAP setup
@@ -37,18 +45,13 @@ def evaluate(individual):
 toolbox.register("evaluate", evaluate)
 toolbox.register("select", tools.selTournament, tournsize=7)  # K_tournament=7
 toolbox.register("mate", tools.cxTwoPoint)                   # two_points
-toolbox.register("mutate", tools.mutUniformInt, low=0, up=3, indpb=0.05)  # 5%
+toolbox.register("mutate", tools.mutUniformInt, low=0, up=3, indpb=0.07)  # 7%
 
 if __name__ == "__main__":
-    # Exact PyGAD parameters
-    POP_SIZE = 400
-    NGEN = 300
-    CXPB = 0.5   # Controls mating fraction (~100/400 parents effectively)
-    MUTPB = 0.25 # ~100 mutations total
     
 #    random.seed(42)
     pop = toolbox.population(n=POP_SIZE)
-    hof = tools.HallOfFame(2)  # keep_parents=2
+    hof = tools.HallOfFame(NHOF)  # keep_parents=2
     
     t1 = time.time()
     
@@ -96,7 +99,7 @@ if __name__ == "__main__":
         
         print(f"Gen {gen+1}: Best={current_best:.4f}, No imp={no_improvement}")
         
-        if no_improvement >= 50:
+        if no_improvement >= NTERM:
             print(f"Early stop at gen {gen+1}")
             break
     
