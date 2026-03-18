@@ -96,7 +96,8 @@ def cgnaplus_conf(
     if dynamic is not None:
         for i in range(len(gs)):
             gs[i] = gs[i] @ ds[i]
-
+        params = so3.se3_rotmat2euler_batch(gs)
+        
     # generate bp poses
     bp_poses = _build_chain(_build_first_pose(orientation=orientation, origin=origin), gs[inter_bp_dof_ids])
 
