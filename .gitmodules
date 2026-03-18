@@ -1,6 +1,6 @@
 [submodule "cgnaplusparams/SO3"]
 	path = cgnaplusparams/SO3
-	url = git@github.com:eskoruppa/SO3
+	url = https://github.com/eskoruppa/SO3
 [submodule "cgnaplusparams/pyConDec"]
 	path = cgnaplusparams/pyConDec
-	url = git@github.com:eskoruppa/pyConDec
+	url = https://github.com/eskoruppa/pyConDec
