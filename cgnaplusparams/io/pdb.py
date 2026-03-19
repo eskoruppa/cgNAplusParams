@@ -147,8 +147,8 @@ def _discretization_length(conf: np.ndarray) -> np.ndarray:
 def gen_pdb(
     outfn: str,
     poses: np.ndarray,
+    sequence: str,
     bpdicts: dict[str, Any] = None,
-    sequence: str = None,
     center: bool = True,
     ignore_errors: bool = False,
 ):
