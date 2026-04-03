@@ -22,6 +22,5 @@ from .cgnaplus_conf import cgnaplus_conf, cgNAplusConf
 from .io.pdb import gen_pdb
 from .io.visualize_rbp import visualize_chimerax
 from .io.visualize_cgnaplus import visualize_cgnaplus
-
+from .observables.curvature import curvature
 from .junction_connector import junction_mapper, vertices2junctions
-
