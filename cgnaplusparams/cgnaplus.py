@@ -1,121 +1,293 @@
-#!/bin/env python3
+"""Top-level cgNA+ object.
 
+Provides :class:`CGNAPlus`, which combines a
+:class:`~cgnaplus_params.CGNAPlusParams` model with a
+:class:`~cgnaplus_conf.CGNAPlusConf` configuration and exposes a unified API
+for building, accessing, and exporting cgNA+ structures.
+"""
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import numpy as np
-import scipy as sp
-from scipy.sparse import csc_matrix
-from ._so3 import so3
 
-from .cgnaplus_params import constructSeqParms, constructSeqParms_original
-from .utils.assignment_utils import cgnaplus_name_assignment, nonphosphate_dof_map
-from .utils.assignment_utils import crick_phosphate_dof_indices
-from .utils.crick_flip import apply_crick_flip
-
-
-
-def cgnaplusparams(
-    sequence: str, 
-    parameter_set_name: str = "Prmset_cgDNA+_CGF_10mus_int_12mus_ends",
-    euler_definition: bool = True,
-    group_split: bool = True,
-    remove_factor_five: bool = True,
-    translations_in_nm: bool = True,
-    include_stiffness: bool = True,
-    aligned_strands: bool = False
-    ) -> dict[str, np.ndarray | bool | str]:
-    
-    gs, stiff = constructSeqParms(sequence, parameter_set_name)
-
-    param_names = cgnaplus_name_assignment(sequence)
-    nonphosphate_map = nonphosphate_dof_map(sequence, param_names=param_names)
-
-    if aligned_strands:
-        gs, stiff = apply_crick_flip(
-            gs,
-            stiff if include_stiffness else None,
-            param_names,
-        )
-
-    if remove_factor_five:
-        factor = 5
-        gs   = so3.array_conversion(gs,1./factor,block_dim=6,dofs=[0,1,2])
-        if include_stiffness:
-            stiff = so3.array_conversion(stiff,factor,block_dim=6,dofs=[0,1,2])
-    if translations_in_nm:
-        factor = 10
-        gs   = so3.array_conversion(gs,1./factor,block_dim=6,dofs=[3,4,5])
-        if include_stiffness:
-            stiff = so3.array_conversion(stiff,factor,block_dim=6,dofs=[3,4,5])
-    gs = so3.statevec2vecs(gs,vdim=6) 
-
-    if euler_definition:
-        # cayley2euler_stiffmat requires gs in cayley definition
-        if include_stiffness:
-            stiff = so3.se3_cayley2euler_stiffmat(gs,stiff,rotation_first=True)
-        gs = so3.se3_cayley2euler(gs)
-
-    if group_split:
-        if not euler_definition:
-            raise ValueError('The group_split option requires euler_definition to be set!')
-        if include_stiffness:
-            
-            gs,stiff = so3.algebra2group_params(gs, stiff, rotation_first=True, translation_as_midstep=nonphosphate_map, optimized=True) 
-        else:
-            gs = so3.midstep2triad(gs)
-
-    result = {
-        "gs": gs,
-        "sequence": sequence,
-        "translations_in_nm": translations_in_nm,
-        "euler_definition": euler_definition,
-        "group_split": group_split,
-        "remove_factor_five": remove_factor_five,
-        "param_names": param_names,
-        "aligned_strands": aligned_strands
-    }
-    if include_stiffness:
-        result["stiffmat"] = stiff
-
-    return result
-
+if TYPE_CHECKING:
+    from .cgnaplus_conf import CGNAPlusConf
+    from .cgnaplus_params import CGNAPlusParams
 
 
 class CGNAPlus:
+    """Top-level cgNA+ object unifying model parameters and structural configurations.
+
+    Combines a :class:`CGNAPlusParams` instance (sequence-dependent ground
+    state and stiffness matrix) with a :class:`CGNAPlusConf` instance (one or
+    more pose snapshots).  Both components are optional, enabling use cases
+    such as reading a PDB without an associated parameter model.
+
+    Construction
+    ------------
+    Use the class methods rather than ``__init__`` directly:
+
+    * :meth:`from_ground_state` — from a sequence string (ground state only)
+    * :meth:`from_params`       — from a sequence + dynamic deformation array
+    * :meth:`from_pdb`          — fit to a single PDB file
+    * :meth:`from_trajectory`   — fit to an MD trajectory (multiple snapshots)
+    """
 
     def __init__(
-            self, 
-            sequence: str, 
-            parameter_set_name: str = "Prmset_cgDNA+_CGF_10mus_int_12mus_ends",
-            euler_definition: bool = True,
-            group_split: bool = True,
-            translations_in_nm: bool = True,
-            aligned_strands: bool = False
-            ):
+        self,
+        params: "CGNAPlusParams | None" = None,
+        conf:   "CGNAPlusConf | None"   = None,
+    ) -> None:
+        self._params = params
+        self._conf   = conf
 
-        self.params = cgnaplusparams(
-            sequence=sequence,
+    # ------------------------------------------------------------------
+    # Classmethod constructors
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_ground_state(
+        cls,
+        sequence: str,
+        *,
+        parameter_set_name: str = "Prmset_cgDNA+_CGF_10mus_int_12mus_ends",
+        orientation: np.ndarray | list = np.array([0.0, 0.0, 1.0]),
+        origin:      np.ndarray | list = np.zeros(3),
+        **kwargs,
+    ) -> "CGNAPlus":
+        """Build a cgNA+ ground-state configuration from *sequence*.
+
+        Parameters
+        ----------
+        sequence:
+            Nucleotide sequence string, e.g. ``"ATCGATCG"``.
+        parameter_set_name:
+            Name of the cgNA+ parameter-set ``.mat`` file (without path).
+        orientation, origin:
+            Initial reference frame; passed to the chain builder.
+        **kwargs:
+            Additional keyword arguments forwarded to
+            :class:`~cgnaplus_params.CGNAPlusParams` (e.g.
+            ``euler_definition``, ``group_split``, …).
+        """
+        from .cgnaplus_params import CGNAPlusParams
+        from .cgnaplus_conf import CGNAPlusConf
+        params = CGNAPlusParams(
+            sequence,
             parameter_set_name=parameter_set_name,
-            euler_definition=euler_definition,
-            group_split=group_split,
-            remove_factor_five=True,
-            translations_in_nm=translations_in_nm,
-            include_stiffness=True,
-            aligned_strands=aligned_strands
-        )    
+            **kwargs,
+        )
+        conf = CGNAPlusConf.from_params(
+            params,
+            orientation=orientation,
+            origin=origin,
+        )
+        return cls(params=params, conf=conf)
 
-        self.parameter_set_name = parameter_set_name
-        self.euler_definition = euler_definition
-        self.group_split = group_split
-        self.translations_in_nm = translations_in_nm
+    @classmethod
+    def from_params(
+        cls,
+        sequence: str,
+        dynamic:  np.ndarray,
+        *,
+        parameter_set_name: str = "Prmset_cgDNA+_CGF_10mus_int_12mus_ends",
+        orientation: np.ndarray | list = np.array([0.0, 0.0, 1.0]),
+        origin:      np.ndarray | list = np.zeros(3),
+        **kwargs,
+    ) -> "CGNAPlus":
+        """Build a cgNA+ deformed configuration from *sequence* and *dynamic*.
 
-        self.stiffmat = self.params["stiffmat"]
-        self.gs = self.params["gs"]
-        self.sequence = sequence 
-        self.param_names = self.params["param_names"]
+        Parameters
+        ----------
+        sequence:
+            Nucleotide sequence string.
+        dynamic:
+            Deformation array, shape ``(n_dof, 6)`` for a single snapshot or
+            ``(n_snap, n_dof, 6)`` for an ensemble.
+        parameter_set_name, orientation, origin, **kwargs:
+            Forwarded to :class:`~cgnaplus_params.CGNAPlusParams`.
+        """
+        from .cgnaplus_params import CGNAPlusParams
+        from .cgnaplus_conf import CGNAPlusConf
+        params = CGNAPlusParams(
+            sequence,
+            parameter_set_name=parameter_set_name,
+            **kwargs,
+        )
+        conf = CGNAPlusConf.from_params(
+            params,
+            dynamic=dynamic,
+            orientation=orientation,
+            origin=origin,
+        )
+        return cls(params=params, conf=conf)
+
+    @classmethod
+    def from_pdb(
+        cls,
+        pdb_path: str | Path,
+        sequence: str | None = None,
+        *,
+        params: "CGNAPlusParams | None" = None,
+    ) -> "CGNAPlus":
+        """Build a cgNA+ configuration by reading and fitting a PDB file.
+
+        .. note::
+            Requires :func:`~cgnaplusparams.io.read_pdb.fit_pdb` to be
+            implemented (currently raises ``NotImplementedError``).
+
+        Parameters
+        ----------
+        pdb_path:
+            Path to the PDB file.
+        sequence:
+            Expected nucleotide sequence; inferred from the PDB when *None*.
+        params:
+            Optional :class:`~cgnaplus_params.CGNAPlusParams` to attach.
+        """
+        from .output.read_pdb import fit_pdb
+        from .cgnaplus_conf import CGNAPlusConf
+        named_poses = fit_pdb(pdb_path, sequence=sequence)
+        conf = CGNAPlusConf.from_poses(
+            named_poses["bp_poses"],
+            watson_base_poses=named_poses.get("watson_base_poses"),
+            crick_base_poses=named_poses.get("crick_base_poses"),
+            watson_phosphate_poses=named_poses.get("watson_phosphate_poses"),
+            crick_phosphate_poses=named_poses.get("crick_phosphate_poses"),
+            params=params,
+            sequence=sequence,
+        )
+        return cls(params=params, conf=conf)
+
+    @classmethod
+    def from_trajectory(
+        cls,
+        trajectory_path: str | Path,
+        topology_path:   str | Path,
+        sequence: str | None = None,
+        *,
+        params: "CGNAPlusParams | None" = None,
+        frames: "slice | list[int] | None" = None,
+    ) -> "CGNAPlus":
+        """Build a multi-snapshot cgNA+ configuration from an MD trajectory.
+
+        .. note::
+            Requires :func:`~cgnaplusparams.io.read_pdb.fit_trajectory` to be
+            implemented (currently raises ``NotImplementedError``).
+
+        Parameters
+        ----------
+        trajectory_path:
+            Path to the trajectory file.
+        topology_path:
+            Path to the topology / structure file.
+        sequence:
+            Expected nucleotide sequence.
+        params:
+            Optional :class:`~cgnaplus_params.CGNAPlusParams`.
+        frames:
+            Frame selection: a :class:`slice`, a list of integer indices, or
+            *None* for all frames.
+        """
+        from .output.read_pdb import fit_trajectory
+        from .cgnaplus_conf import CGNAPlusConf
+        named_poses = fit_trajectory(
+            trajectory_path,
+            topology_path,
+            sequence=sequence,
+            frames=frames,
+        )
+        conf = CGNAPlusConf.from_poses(
+            named_poses["bp_poses"],
+            watson_base_poses=named_poses.get("watson_base_poses"),
+            crick_base_poses=named_poses.get("crick_base_poses"),
+            watson_phosphate_poses=named_poses.get("watson_phosphate_poses"),
+            crick_phosphate_poses=named_poses.get("crick_phosphate_poses"),
+            params=params,
+            sequence=sequence,
+        )
+        return cls(params=params, conf=conf)
+
+    # ------------------------------------------------------------------
+    # Delegation to conf
+    # ------------------------------------------------------------------
+
+    def get_pose(self, name: str) -> np.ndarray | None:
+        """Delegate to :meth:`~cgnaplus_conf.CGNAPlusConf.get_pose`."""
+        return self._conf.get_pose(name)
+
+    def get_junction(self, name: str) -> np.ndarray | None:
+        """Delegate to :meth:`~cgnaplus_conf.CGNAPlusConf.get_junction`."""
+        return self._conf.get_junction(name)
+
+    def get_parameter(self, name: str) -> np.ndarray | None:
+        """Delegate to :meth:`~cgnaplus_conf.CGNAPlusConf.get_parameter`."""
+        return self._conf.get_parameter(name)
+
+    def __getitem__(self, key: str) -> np.ndarray | None:
+        """Shorthand for :meth:`get_pose`."""
+        return self._conf.get_pose(key)
+
+    def to_pdb(self, outfn: str, *, snapshot_idx: int = 0) -> None:
+        """Delegate to :meth:`~cgnaplus_conf.CGNAPlusConf.to_pdb`."""
+        self._conf.to_pdb(outfn, snapshot_idx=snapshot_idx)
+
+    def to_chimerax(self, base_fn: str, *, snapshot_idx: int = 0) -> None:
+        """Delegate to :meth:`~cgnaplus_conf.CGNAPlusConf.to_chimerax`."""
+        self._conf.to_chimerax(base_fn, snapshot_idx=snapshot_idx)
+
+    def snapshot(self, i: int) -> "CGNAPlus":
+        """Return a single-snapshot :class:`CGNAPlus` for frame *i*."""
+        return CGNAPlus(params=self._params, conf=self._conf.snapshot(i))
+
+    def __len__(self) -> int:
+        return len(self._conf) if self._conf is not None else 0
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self.snapshot(i)
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def params(self) -> "CGNAPlusParams | None":
+        """The cgNA+ parameter model."""
+        return self._params
+
+    @property
+    def conf(self) -> "CGNAPlusConf | None":
+        """The structural configuration."""
+        return self._conf
+
+    @property
+    def sequence(self) -> str | None:
+        """Nucleotide sequence string."""
+        if self._params is not None:
+            return self._params.sequence
+        if self._conf is not None:
+            return self._conf.sequence
+        return None
+
+    @property
+    def n_snapshots(self) -> int:
+        """Number of snapshots stored."""
+        return len(self._conf) if self._conf is not None else 0
+
+    @property
+    def nbp(self) -> int:
+        """Number of base pairs."""
+        return self._conf.nbp if self._conf is not None else 0
+
+    def __repr__(self) -> str:
+        return (
+            f"CGNAPlus(sequence='{self.sequence}', "
+            f"n_snapshots={self.n_snapshots}, nbp={self.nbp})"
+        )
 
 
-    
-
-
-
+# Keep the old stub name accessible during any transition period
+cgNAplus = CGNAPlus

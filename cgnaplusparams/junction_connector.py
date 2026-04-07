@@ -39,20 +39,20 @@ class Pose:
 class Junction:
 
     param_name_mapper = {
-        'x' : 'X',
-        'y' : 'Y',
-        'c' : 'C',
-        'w' : 'W',
-        'l' : 'X',
-        'r' : 'X',
+        INTRA_BP_JUNC_NAME : INTRA_BP_PARAM_NAME,
+        INTER_BP_JUNC_NAME : INTER_BP_PARAM_NAME,
+        B2P_CRICK_JUNC_NAME : B2P_CRICK_PARAM_NAME,
+        B2P_WATSON_JUNC_NAME : B2P_WATSON_PARAM_NAME,
+        C2BP_JUNC_NAME : INTRA_BP_PARAM_NAME,
+        BP2W_JUNC_NAME : INTRA_BP_PARAM_NAME,
     }
     param_style_mapper = {
-        'x' : 'full',
-        'y' : 'full',
-        'c' : 'full',
-        'w' : 'full',
-        'l' : 'lh',
-        'r' : 'rh',
+        INTRA_BP_JUNC_NAME: FULL_JUNCTION_NAME,
+        INTER_BP_JUNC_NAME : FULL_JUNCTION_NAME,
+        B2P_CRICK_JUNC_NAME : FULL_JUNCTION_NAME,
+        B2P_WATSON_JUNC_NAME : FULL_JUNCTION_NAME,
+        C2BP_JUNC_NAME : LEFTHAND_JUNCTION_NAME,
+        BP2W_JUNC_NAME : RIGHTHAND_JUNCTION_NAME,
     }
 
     def __init__(self, type: str, bpid: int, sense: int):
@@ -149,7 +149,6 @@ class Junction:
     @property
     def style(self) -> str:
         return self.param_style_mapper[self._type]
-
 
 
 def _is_bp(name: str) -> bool:
@@ -282,7 +281,7 @@ def vertices2junctions(
     if bpid1 == bpid2:
         juncs = _interal_connect(first_name, second_name)
     else:
-        juncs = _juncs_to_bp(first_name)
+        juncs =  _juncs_to_bp(first_name)
         juncs += _juncs_from_bp_to_bp(bpid1, bpid2)
         juncs += _juncs_from_bp(second_name)
     if reverse:
@@ -306,39 +305,43 @@ def junction_mapper(first_name: str, second_name: str, param_names: list[str]) -
 
 if __name__ == "__main__":
 
-    first_name = "bw0"
-    second_name = "bc0"
+    first_name = f"{WATSON_BASE_NAME}0"
+    second_name = f"{CRICK_BASE_NAME}0"
 
-    first_name = "bw10"
-    second_name = "bc10"
+    first_name = f"{WATSON_BASE_NAME}10"
+    second_name = f"{CRICK_BASE_NAME}10"
 
-    first_name = "pc1"
-    second_name = "pw1"
+    first_name = f"{CRICK_PHOSPHATE_NAME}1"
+    second_name = f"{WATSON_PHOSPHATE_NAME}1"
 
-    first_name = "pc1"
-    second_name = "bw1"
+    first_name = f"{CRICK_PHOSPHATE_NAME}1"
+    second_name = f"{WATSON_BASE_NAME}1"
 
-    first_name = "pc1"
-    second_name = "bp1"
+    pw = f"{WATSON_PHOSPHATE_NAME}"
+    pc = f"{CRICK_PHOSPHATE_NAME}"
+    bw = f"{WATSON_BASE_NAME}"
+    bc = f"{CRICK_BASE_NAME}"
 
-    first_name = "bp1"
-    second_name = "pc1"
+    first_name = f"{CRICK_PHOSPHATE_NAME}1"
+    second_name = f"{BP_NAME}1"
 
-    first_name = "bp1"
-    second_name = "pw1"
+    first_name = f"{BP_NAME}1"
+    second_name = f"{CRICK_PHOSPHATE_NAME}1"
 
-    first_name = "pw1"
-    second_name = "bp1"
+    first_name = f"{BP_NAME}1"
+    second_name = f"{WATSON_PHOSPHATE_NAME}1"
 
-    first_name = "pc1"
-    second_name = "bp1"
+    first_name = f"{WATSON_PHOSPHATE_NAME}1"
+    second_name = f"{BP_NAME}1"
 
-    first_name = "pc1"
-    second_name = "pw5"
+    first_name = f"{CRICK_PHOSPHATE_NAME}1"
+    second_name = f"{BP_NAME}1"
 
-    first_name = "pw15"
-    second_name = "pw0"
+    first_name = f"{CRICK_PHOSPHATE_NAME}1"
+    second_name = f"{WATSON_PHOSPHATE_NAME}1"
 
+    first_name = f"{WATSON_PHOSPHATE_NAME}1"
+    second_name = f"{CRICK_PHOSPHATE_NAME}1"
 
 
     juncs = vertices2junctions(first_name, second_name)
@@ -391,7 +394,7 @@ if __name__ == "__main__":
     print('#'*80)
     print('# Build parameter index mapping')
     print('#'*80)
-    from .cgnaplus import cgnaplusparams
+    from .cgnaplus_params import cgnaplusparams
 
     nbp = 7
     seq = ''.join(np.random.choice(list("ACGT"), size=nbp))
@@ -399,8 +402,8 @@ if __name__ == "__main__":
 
     param_names = result["param_names"]
 
-    first_name = "pw1"
-    second_name = "pc5"
+    first_name = f"{WATSON_PHOSPHATE_NAME}1"
+    second_name = f"{CRICK_PHOSPHATE_NAME}5"
 
     juncs = vertices2junctions(first_name, second_name)
 

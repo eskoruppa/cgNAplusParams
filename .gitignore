@@ -24,6 +24,17 @@
 **dev_*
 **dev_*/
 
+# ignores archive directories and files
+**archive/
+**Archive/
+**ARCHIVE/
+**archives/
+**Archives/
+**ARCHIVES/
+**archive*
+**Archive*
+**ARCHIVE*
+
 # ignore data directories
 **Data/
 **data/
@@ -31,3 +42,6 @@
 
 # ignore egg-info directory
 **.egg-info/
+
+# ignore pdf files
+**.pdf
