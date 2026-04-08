@@ -65,25 +65,41 @@ def _triads2bild(
     kappa = 0
 
     dtheta2 = 0.5*np.acos(np.dot(t_hat[-1],t_hat[nposes//8])) # half angle
-    dr = np.linalg.norm(r[-1]-r[nposes//2]) # distance between triad origins
+    dr = np.linalg.norm(r[-1]-r[nposes//8]) # distance between triad origins
     kappa += 2.0/dr*np.sin(dtheta2)  # curvature
 
-    dtheta2 = 0.5*np.acos(np.dot(t_hat[0],t_hat[nposes//8])) # half angle
-    dr = np.linalg.norm(r[0]-r[nposes//2]) # distance between triad origins
+    dtheta2 = 0.5*np.acos(np.dot(t_hat[-1],t_hat[nposes//4])) # half angle
+    dr = np.linalg.norm(r[-1]-r[nposes//4]) # distance between triad origins
     kappa += 2.0/dr*np.sin(dtheta2)  # curvature
 
     dtheta2 = 0.5*np.acos(np.dot(t_hat[-1],t_hat[nposes//2])) # half angle
     dr = np.linalg.norm(r[-1]-r[nposes//2]) # distance between triad origins
     kappa += 2.0/dr*np.sin(dtheta2)  # curvature
 
+    dtheta2 = 0.5*np.acos(np.dot(t_hat[-1],t_hat[7*nposes//8])) # half angle
+    dr = np.linalg.norm(r[-1]-r[7*nposes//8]) # distance between triad origins
+    kappa += 2.0/dr*np.sin(dtheta2)  # curvature
+
+    dtheta2 = 0.5*np.acos(np.dot(t_hat[0],t_hat[nposes//8])) # half angle
+    dr = np.linalg.norm(r[0]-r[nposes//8]) # distance between triad origins
+    kappa += 2.0/dr*np.sin(dtheta2)  # curvature
+
+    dtheta2 = 0.5*np.acos(np.dot(t_hat[0],t_hat[nposes//4])) # half angle
+    dr = np.linalg.norm(r[0]-r[nposes//4]) # distance between triad origins
+    kappa += 2.0/dr*np.sin(dtheta2)  # curvature
+
     dtheta2 = 0.5*np.acos(np.dot(t_hat[0],t_hat[nposes//2])) # half angle
     dr = np.linalg.norm(r[0]-r[nposes//2]) # distance between triad origins
+    kappa += 2.0/dr*np.sin(dtheta2)  # curvature
+
+    dtheta2 = 0.5*np.acos(np.dot(t_hat[0],t_hat[7*nposes//8])) # half angle
+    dr = np.linalg.norm(r[0]-r[7*nposes//8]) # distance between triad origins
     kappa += 2.0/dr*np.sin(dtheta2)  # curvature
 
     dtheta2 = 0.5*np.acos(np.dot(t_hat[0],t_hat[-1])) # half angle
     dr = np.linalg.norm(r[0]-r[-1]) # distance between triad origins
     kappa += 2.0/dr*np.sin(dtheta2)  # curvature
 
-    kappa /= 5
+    kappa /= 9
 
     return kappa
