@@ -29,7 +29,7 @@ def curvature(
 
     outdir = base_fn.parent
     if not outdir.exists():
-        os.makedirs(outdir)
+        os.makedirs(outdir, exist_ok=True)
 
     if poses is None:
         poses = rbp_conf(shape_params)
