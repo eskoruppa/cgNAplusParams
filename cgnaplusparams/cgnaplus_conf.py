@@ -930,7 +930,6 @@ def confs_from_traj(
             for i,ad in enumerate(dup.aligned_domains):
                 poses = ad.fit_frames(convention=convention, crickflip=True)
                 sequence = ad.sequence
-                print(sequence)
                 cgnap = CGNAPlusParams(
                     sequence=sequence,
                     parameter_set_name=parameter_set_name,
@@ -955,7 +954,6 @@ def confs_from_traj(
             for i,bd in enumerate(dup.bonded_domains):
                 poses = bd.fit_frames(convention=convention, crickflip=True)
                 sequence = bd.sequence
-                print(sequence)
                 cgnap = CGNAPlusParams(
                     sequence=sequence,
                     parameter_set_name=parameter_set_name,
