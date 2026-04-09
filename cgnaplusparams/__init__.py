@@ -39,6 +39,6 @@ from .cgnaplus_conf import confs_from_traj
 # from .io.visualize_rbp import visualize_chimerax
 # # from .io.visualize_cgnaplus import visualize_cgnaplus
 
-# # junction mapper functions
-# from .junction_connector import junction_mapper, vertices2junctions
+# junction mapper functions
+from .junction_connector import junction_mapper, vertices2junctions
 
