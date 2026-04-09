@@ -12,7 +12,7 @@ from cgnaplusparams import visualize_chimerax
 from cgnaplusparams import curvature, distance
 
 nbp = 360
-TARGET_CURVATURE = 0.07
+TARGET_CURVATURE = 0.051
 TARGET_DISTANCE = 2.0
 base_fn = 'Multi/test'
 
@@ -152,7 +152,7 @@ def main():
     
     print(f"\nBest by kappa: {seq}")
     print(f"  kappa={kappa:.6f} (target={TARGET_CURVATURE}, err={best_ind.fitness.values[0]:.6f})")
-    print(f"  dist={dist:.1f}  (target={TARGET_DISTANCE}, err={best_ind.fitness.values[1]:.6f})")
+    print(f"  distance={dist:.6f}  (target={TARGET_DISTANCE}, err={best_ind.fitness.values[1]:.6f})")
     
     conf = rbp_conf(result["gs"])
     visualize_chimerax(base_fn, seq, shape_params=result["gs"], cg=1)

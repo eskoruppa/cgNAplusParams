@@ -9,15 +9,16 @@ from deap import base, creator, tools
 
 from cgnaplusparams import cgnaplus2rbp, rbp_conf
 from cgnaplusparams import visualize_chimerax
-from cgnaplusparams import curvature
+from cgnaplusparams import curvature, distance
 
-nbp = 360
+nbp = 340
+TARGET_DISTANCE = 1.0
 TARGET_CURVATURE = 0.07
-base_fn = 'Curvature/test'
+base_fn = 'Distance/test'
 
 NTERM = 100
 POP_SIZE = 1000
-NGEN = 1000
+NGEN = 2000
 CXPB = 0.5
 MUTPB = 0.75
 NHOF = 3
@@ -47,8 +48,10 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 def evaluate(individual):
     seq = ''.join(BASE_MAPPING[int(gene)] for gene in individual)
     result = cgnaplus2rbp(seq, include_stiffness=False)
-    kappa = curvature(base_fn, seq, shape_params=result["gs"], cg=1)
-    cost = abs((kappa - TARGET_CURVATURE)/TARGET_CURVATURE)
+#    kappa = curvature(base_fn, seq, shape_params=result["gs"], cg=1)
+#    cost = abs((kappa - TARGET_CURVATURE)/TARGET_CURVATURE)
+    dist = distance(base_fn, seq, shape_params=result["gs"], cg=1)
+    cost = abs((dist - TARGET_DISTANCE)/TARGET_DISTANCE)
     return (cost,)
 
 toolbox.register("evaluate", evaluate)
@@ -142,9 +145,13 @@ def main():
 
     result = cgnaplus2rbp(seq, include_stiffness=False)
     kappa = curvature(base_fn, seq, shape_params=result["gs"], cg=1)
+    dist = distance(base_fn, seq, shape_params=result["gs"], cg=1)
 
-    print(f"Best (seq, kappa, cost): {seq} | {kappa:.6f} | {best_cost:.6f}")
-    
+    print(f"\nBest: {seq}")
+    print(f"kappa = {kappa:.6f}")
+    print(f"distance = {dist:.6f}")
+    print(f"cost = {best_cost:.6f}")
+
     conf = rbp_conf(result["gs"])
     visualize_chimerax(base_fn, seq, shape_params=result["gs"], cg=1)
     
