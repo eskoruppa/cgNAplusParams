@@ -689,6 +689,12 @@ class DNAReader:
 
         if not pairings or not pairings[0] or not pairings[0][0]:
             return []
+        
+        # for pair in pairings[0][0]:
+        #     print(pair)
+        #     if pair[0] + pair[1] != 293:
+        #         print("Unexpected pair indices detected - geometric detection may be unreliable.")
+
 
         pairs_list = pairings[0][0]
         annotations = pairings[0][1]
@@ -715,6 +721,11 @@ class DNAReader:
                 continue
             if not are_complementary(res1.name, res2.name):
                 continue
+            # Skip unclassified (XXX) interactions — these are non-canonical
+            # contacts that can assign a residue to multiple partners and
+            # fragment otherwise-contiguous bonded domains.
+            if ann == "XXX":
+                continue
             c1, c2 = res1.chain.index, res2.chain.index
             if c1 > c2:
                 c1, c2 = c2, c1
@@ -733,14 +744,9 @@ class DNAReader:
 
             watson_chain, crick_chain = self._assign_strand_directions(c1, c2, unique_pairs)
 
-            if watson_chain == c1:
-                sorted_pairs = sorted(unique_pairs, key=lambda p: p[0].resSeq)
-            else:
-                sorted_pairs = sorted(
-                    [(r2, r1) for r1, r2 in unique_pairs],
-                    key=lambda p: p[0].resSeq,
-                )
-
+            # Build residue lists in topology order (not resSeq order) so that
+            # chains with non-sequential resSeq numbering (e.g. 9927..9999, 1..73)
+            # are handled correctly.
             watson_all = [
                 r for r in self.traj.topology.chain(watson_chain).residues
                 if is_dna_residue(r)
@@ -749,6 +755,28 @@ class DNAReader:
                 r for r in self.traj.topology.chain(crick_chain).residues
                 if is_dna_residue(r)
             ]
+            w_topo = {r.index: i for i, r in enumerate(watson_all)}
+
+            if watson_chain == c1:
+                sorted_pairs = sorted(unique_pairs, key=lambda p: w_topo.get(p[0].index, 0))
+            else:
+                sorted_pairs = sorted(
+                    [(r2, r1) for r1, r2 in unique_pairs],
+                    key=lambda p: w_topo.get(p[0].index, 0),
+                )
+
+            # Enforce 1-to-1 Watson-Crick mapping: if barnaba still assigns a
+            # residue to multiple partners (e.g. borderline non-WC contacts),
+            # keep the first occurrence in Watson 5'->3' order.
+            seen_w: set = set()
+            seen_c: set = set()
+            one_to_one: List[Tuple] = []
+            for w, c in sorted_pairs:
+                if w.index not in seen_w and c.index not in seen_c:
+                    one_to_one.append((w, c))
+                    seen_w.add(w.index)
+                    seen_c.add(c.index)
+            sorted_pairs = one_to_one
             strand_w = self.traj.topology.chain(watson_chain)
             strand_c = self.traj.topology.chain(crick_chain)
             bonded_doms = _split_bonded_domains(
