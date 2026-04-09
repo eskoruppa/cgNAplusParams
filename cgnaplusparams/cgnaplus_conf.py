@@ -246,6 +246,18 @@ class CGNAPlusConf:
     def get_param_Xd_by_name(self, name: str, snapshot: int = 0) -> np.ndarray:
         idx = dof_index(name, self._param_names)
         return self.params_Xd[snapshot, idx]
+    
+    def is_watson_base_name(self, name: str) -> bool:
+        return name.startswith(WATSON_BASE_NAME)
+
+    def is_crick_base_name(self, name: str) -> bool:
+        return name.startswith(CRICK_BASE_NAME)
+    
+    def is_watson_phosphate_name(self, name: str) -> bool:
+        return name.startswith(WATSON_PHOSPHATE_NAME)
+
+    def is_crick_phosphate_name(self, name: str) -> bool:
+        return name.startswith(CRICK_PHOSPHATE_NAME)
 
     ########################################################################################################################
     # Internal methods to ensure values are computed and cached
