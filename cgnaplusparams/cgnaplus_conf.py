@@ -925,8 +925,12 @@ def confs_from_traj(
     # TODO: allow iteration through snaphots
 
     confs = []
+
+    print(f'Read {len(reader.duplexes)} duplexes from {filename} with use_aligned_domains={use_aligned_domains}.')
+
     for dup in reader.duplexes:
         if use_aligned_domains:
+            print(f'Processing duplex {dup.name} with {len(dup.aligned_domains)} aligned domains.')
             for i,ad in enumerate(dup.aligned_domains):
                 poses = ad.fit_frames(convention=convention, crickflip=True)
                 sequence = ad.sequence
