@@ -45,3 +45,4 @@
 
 # ignore pdf files
 **.pdf
+refs/
