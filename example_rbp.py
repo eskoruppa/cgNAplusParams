@@ -13,7 +13,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = f"{num_cores}"
 import numpy as np
 from cgnaplusparams import cgnaplus2rbp, rbp_conf
 from cgnaplusparams import visualize_chimerax
-from cgnaplusparams import RBP
+from cgnaplusparams import RBPParams
 from cgnaplusparams import RBPConf
 import time
 
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     base_fn = 'Test/test'
 
     result = cgnaplus2rbp(seq,include_stiffness=True)
-    rbp = RBP(seq, include_stiffness=True)
+    rbp = RBPParams(seq, include_stiffness=True)
 
     if not np.allclose(result["gs"], rbp.gs):
         raise ValueError("gs arrays do not match between cgnaplus2rbp and RBP versions.")
@@ -47,9 +47,15 @@ if __name__ == "__main__":
     t1 = time.time()
     for i in range(reps):
         seq = "".join(np.random.choice(list("ACGT"), size=nbp))
-        rbp = RBP(seq, include_stiffness=True)
-        rbpconf = RBPConf(rbp, dynamic=dynamic)
-        conf = rbpconf.poses
+        rbp = RBPParams(seq, include_stiffness=True)
+        # rbpconf = RBPConf(rbp, dynamic=dynamic)
+        # conf = rbpconf.poses
+
+        rbp.gs.shape
+        # rbp.stiffmat.shape
+        # print(rbp.gs.shape)
+        # print(rbp.stiffmat.shape)
+
     t2 = time.time()
     print(f"Time taken: {(t2 - t1) / reps:.5f} seconds per sequence ({t2 - t1:.5f} seconds total)")
     # sys.exit()

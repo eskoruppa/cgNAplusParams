@@ -12,6 +12,8 @@ from .cgnaplus_conf import CGNAPlusConf
 from .rbp_params import RBPParams
 from .rbp_params import cgnaplus2rbp
 from .rbp_params import rbpparams, rbp_params
+from .rbp_conf import RBPConf, rbp_conf
+
 
 # SO3 methods
 from ._so3 import so3
@@ -35,9 +37,9 @@ from .cgnaplus_conf import confs_from_traj
 
 # # from .cgnaplus_conf import cgnaplus_conf, cgNAplusConf
 
-# from .io.write_pdb import gen_pdb
-# from .io.visualize_rbp import visualize_chimerax
-# # from .io.visualize_cgnaplus import visualize_cgnaplus
+from .output.write_pdb import gen_pdb
+from .output.visualize_rbp import visualize_chimerax
+from .output.visualize_cgnaplus import visualize_cgnaplus
 
 # junction mapper functions
 from .junction_connector import junction_mapper, vertices2junctions

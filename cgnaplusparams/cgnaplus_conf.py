@@ -137,6 +137,21 @@ class CGNAPlusConf:
     # Setters
     ########################################################################################################################
 
+    def change_single_pose(self, pose_name: str, pose: np.ndarray) -> None:
+        # change the poses
+        # self._bp_poses
+        # self._watson_base_poses
+        # self._crick_base_poses
+        # self._watson_phosphate_poses
+        # self._crick_phosphate_poses
+        # and params_Xd to reflect a change in a single pose. 
+        
+
+        self._ensure_params_Xd/()
+        self._ensure_poses()
+
+
+
 
     ########################################################################################################################
     # Properties
