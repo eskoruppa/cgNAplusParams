@@ -7,7 +7,6 @@ import numpy as np
 # from ..IOPolyMC import iopolymc as iopmc
 from ..rbp_conf import rbp_conf
 from .write_pdb import gen_pdb
-1
 # from .. utils.path_methods import create_relative_path
 
 

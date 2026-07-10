@@ -8,7 +8,6 @@ import numpy as np
 # from ..rbp_conf import rbp_conf
 from ..utils.se3_methods import build_chain
 from .write_pdb import gen_pdb
-1
 # from .. utils.path_methods import create_relative_path
 
 

@@ -1,3 +1,5 @@
+# DEPRICATED! VERIFIED SAFE TO DELETE.
+
 """cgNA+ configuration class.
 
 Provides :class:`CGNAPlusConf`, which stores one or more snapshots of a

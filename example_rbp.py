@@ -20,7 +20,7 @@ import time
 
 if __name__ == "__main__":
 
-    nbp = 200
+    nbp = 250
     seq = "".join(np.random.choice(list("ACGT"), size=nbp))
     base_fn = 'Test/test'
 

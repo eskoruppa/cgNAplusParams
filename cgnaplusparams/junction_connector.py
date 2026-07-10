@@ -1,9 +1,9 @@
 from __future__ import annotations
-from datetime import time
-from os import name
+# from datetime import time   # unused
+# from os import name         # unused
 
 import numpy as np
-from sympy import sign
+# from sympy import sign       # unused (also avoids pulling in the heavy sympy dependency at import)
 from .utils.assignment_utils import cgnaplus_name_assignment
 from .naming_conventions import *
 
@@ -398,9 +398,9 @@ if __name__ == "__main__":
 
     nbp = 7
     seq = ''.join(np.random.choice(list("ACGT"), size=nbp))
-    result = cgnaplusparams(seq, include_stiffness=True)
+    cgnap = cgnaplusparams(seq, include_stiffness=True)
 
-    param_names = result["param_names"]
+    param_names = cgnap.param_names
 
     first_name = f"{WATSON_PHOSPHATE_NAME}1"
     second_name = f"{CRICK_PHOSPHATE_NAME}5"

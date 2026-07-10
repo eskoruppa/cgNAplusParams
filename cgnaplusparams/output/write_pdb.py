@@ -6,7 +6,7 @@ import sys
 from typing import Any #, Dict, List
 import numpy as np
 
-PDP_BPDICTS_FN = "database/bpdicts"
+PDB_BPDICTS_FN = "database/bpdicts"
 
 ###########################################################################################################################
 ###########################################################################################################################
@@ -22,7 +22,7 @@ def _load_bpdicts(fn: str | None = None) -> dict[str, Any]:
     dict - containing residue data
     """
     if fn is None:
-        fn = os.path.normpath(os.path.join(os.path.dirname(__file__), PDP_BPDICTS_FN))
+        fn = os.path.normpath(os.path.join(os.path.dirname(__file__), PDB_BPDICTS_FN))
     with open(fn, "r") as f:
         bpdicts = json.load(f)
     return bpdicts
@@ -156,7 +156,9 @@ def gen_pdb(
     positions needs to be in nm!
     """
 
-    positions = poses[:, :3, 3]
+    # .copy() so the in-place centering below (positions -= mean) cannot mutate
+    # the caller's `poses` array — poses[:, :3, 3] is a view.
+    positions = poses[:, :3, 3].copy()
     triads = poses[:, :3, :3]
 
     if len(positions.shape) > 2:
@@ -170,10 +172,13 @@ def gen_pdb(
     
     if bpdicts is None:
         bpdicts = _load_bpdicts()
-    sequence = sequence.upper()
 
     numbp = len(positions)
-    
+
+    if sequence is None:
+        sequence = _random_sequence(numbp)
+    sequence = sequence.upper()
+
     disc_len = _discretization_length(positions)
     if np.abs(disc_len - 0.34) / 0.34 > 0.5:
         # wrong discretization length
@@ -181,9 +186,6 @@ def gen_pdb(
             raise ValueError(
                 f"Discretization length needs to be close to 0.34 nm. Provided configuration has discretization length {disc_len} nm!"
             )
-
-    if sequence is None:
-        sequence = _random_sequence(numbp)
 
     if center:
         positions -= np.mean(positions, axis=0)

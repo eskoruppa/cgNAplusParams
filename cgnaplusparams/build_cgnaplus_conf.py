@@ -1,3 +1,6 @@
+# depricated version. delete in the future. use cgNAplus_conf.py instead
+# currently kept for backwards compatibility and for testing purposes.
+
 from __future__ import annotations
 
 import sys

@@ -1,5 +1,7 @@
 from __future__ import annotations
 import numpy as np
+import scipy.sparse as sp
+from scipy.sparse import csc_matrix
 
 from .._so3 import so3
 from .._pycondec import cond_jit
@@ -18,6 +20,45 @@ _cayley2euler = so3.cayley2euler                                  # (3,) → (3,
 _hat_map = so3._hat_map_sv                                        # (3,) → (3,3)
 _inverse_right_jacobian = so3.inverse_right_jacobian              # (3,) → (3,3)
 _right_jacobian = so3.right_jacobian                              # (3,) → (3,3)
+
+
+def _validate_coordinate_definition(
+    euler_definition: bool,
+    group_split: bool,
+    remove_factor_five: bool,
+) -> None:
+    """Validate that the requested coordinate-definition flags are mutually consistent.
+
+    Two hard couplings exist between the flags:
+
+    * ``group_split`` requires ``euler_definition``: the algebra→group split is
+      only defined for the Euler (rotation-vector) parametrisation.
+    * ``euler_definition`` requires ``remove_factor_five``: the Cayley→Euler
+      conversion assumes the *geometric* Cayley vector ``c = 2·tan(θ/2)·n̂``
+      (the "s=2" convention of Skoruppa & Schiessel 2024). The raw cgNA+
+      parameter sets store the *scaled* Cayley vector ``η = 10·tan(θ/2)·n̂``
+      (``= 5·c``). ``remove_factor_five`` divides the rotational groundstate by
+      5, mapping ``η → c``. Without it, ``cayley2euler`` receives a value five
+      times too large *inside* the ``arctan``, silently producing geometrically
+      meaningless rotations (e.g. a ~37° B-DNA twist comes out as ~118°).
+
+    Raises
+    ------
+    ValueError
+        If either coupling is violated.
+    """
+    if group_split and not euler_definition:
+        raise ValueError('The group_split option requires euler_definition to be set!')
+    if euler_definition and not remove_factor_five:
+        raise ValueError(
+            'euler_definition=True requires remove_factor_five=True: the Cayley→Euler '
+            'conversion assumes the geometric Cayley vector (c = 2·tan(θ/2), the "s=2" '
+            'convention), but without remove_factor_five the groundstate is still in the '
+            'shipped cgNA+ scaling (η = 10·tan(θ/2) = 5·c). Applying cayley2euler to a '
+            'value 5× too large silently yields meaningless rotations. Either set '
+            'remove_factor_five=True, or set euler_definition=False to keep the raw '
+            'Cayley parametrisation.'
+        )
 
 
 def _apply_transforms(
@@ -53,6 +94,8 @@ def _apply_transforms(
         include_stiffness is False
     """
 
+    _validate_coordinate_definition(euler_definition, group_split, remove_factor_five)
+
     if isinstance(nonphosphate_map, bool):
         nonphosphate_map = [nonphosphate_map] * (len(gs) // 6)
 
@@ -76,8 +119,6 @@ def _apply_transforms(
         gs = so3.se3_cayley2euler(gs)
 
     if group_split:
-        if not euler_definition:
-            raise ValueError('The group_split option requires euler_definition to be set!')
         if include_stiffness:
             gs, stiff = so3.algebra2group_params(
                 gs, stiff, rotation_first=True,
@@ -277,6 +318,118 @@ def _apply_jacobian_blocks_to_stiff(
     return result
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Sparse-preserving variant of the block congruence
+# ──────────────────────────────────────────────────────────────────────
+#
+# Because the per-DOF Jacobian is block-diagonal, the congruence
+# K'[bi,bj] = J_bi^T · K[bi,bj] · J_bj is nonzero iff K[bi,bj] is nonzero — i.e.
+# the band structure is preserved exactly.  These helpers extract the raw band
+# blocks, transform them with the same per-block arithmetic as
+# ``_apply_jacobian_blocks_to_stiff`` (so the result is bit-identical), and
+# reassemble a sparse CSC — never allocating a dense (6N)² matrix.
+
+
+@cond_jit(nopython=True, cache=True)
+def _apply_jacobian_blocks_banded(
+    K_blocks: np.ndarray,   # (N, W, 6, 6) raw band blocks, W = 2*max_bd+1
+    J_all: np.ndarray,      # (N, 6, 6)
+    max_bd: int,
+) -> np.ndarray:
+    """Transform the band blocks: Kt[bi, m] = J_bi^T · K_blocks[bi, m] · J_bj,
+    where ``bj = bi - max_bd + m``.
+
+    The inner arithmetic mirrors ``_apply_jacobian_blocks_to_stiff`` exactly
+    (same ``tmp = K_block @ Jj`` then ``Ji^T @ tmp`` ordering), so the resulting
+    entries are bit-identical to the dense implementation.
+    """
+    N = J_all.shape[0]
+    W = 2 * max_bd + 1
+    Kt = np.zeros((N, W, 6, 6))
+
+    for bi in range(N):
+        Ji_T = J_all[bi].T  # 6×6
+        for mm in range(W):
+            bj = bi - max_bd + mm
+            if bj < 0 or bj >= N:
+                continue
+            K_block = K_blocks[bi, mm]
+
+            # Check if block is zero (skip)
+            nonzero = False
+            for p in range(6):
+                for q in range(6):
+                    if K_block[p, q] != 0.0:
+                        nonzero = True
+                        break
+                if nonzero:
+                    break
+            if not nonzero:
+                continue
+
+            Jj = J_all[bj]  # 6×6
+
+            # tmp = K_block @ Jj
+            tmp = np.empty((6, 6))
+            for r in range(6):
+                for c in range(6):
+                    s = 0.0
+                    for m in range(6):
+                        s += K_block[r, m] * Jj[m, c]
+                    tmp[r, c] = s
+
+            # Kt_block = Ji_T @ tmp
+            for r in range(6):
+                for c in range(6):
+                    s = 0.0
+                    for m in range(6):
+                        s += Ji_T[r, m] * tmp[m, c]
+                    Kt[bi, mm, r, c] = s
+
+    return Kt
+
+
+def _extract_band_blocks(stiff, N: int, max_bd: int) -> np.ndarray:
+    """Extract the 6×6 band blocks of ``stiff`` into a compact (N, W, 6, 6) array
+    (W = 2*max_bd+1), where ``block[bi, m] = K[6bi:6bi+6, 6bj:6bj+6]`` with
+    ``bj = bi - max_bd + m``.  Works for sparse or dense input; O(nnz), no dense
+    (6N)² allocation."""
+    W = 2 * max_bd + 1
+    K_blocks = np.zeros((N, W, 6, 6))
+    if sp.issparse(stiff):
+        coo = stiff.tocoo()
+        i, j, v = coo.row, coo.col, coo.data
+    else:
+        arr = np.asarray(stiff, dtype=np.float64)
+        i, j = np.nonzero(arr)
+        v = arr[i, j]
+    bi = i // 6
+    bj = j // 6
+    mm = bj - bi + max_bd
+    valid = (mm >= 0) & (mm < W)
+    K_blocks[bi[valid], mm[valid], i[valid] % 6, j[valid] % 6] = v[valid]
+    return K_blocks
+
+
+def _assemble_band_blocks_csc(Kt_blocks: np.ndarray, N: int, max_bd: int, dim: int) -> csc_matrix:
+    """Reassemble the transformed band blocks into a ``csc_matrix`` of shape
+    (dim, dim).  Explicit zeros (all-zero blocks / zero entries) are dropped."""
+    W = 2 * max_bd + 1
+    bi_grid, mm_grid = np.meshgrid(np.arange(N), np.arange(W), indexing='ij')
+    bj_grid = bi_grid - max_bd + mm_grid
+    valid = (bj_grid >= 0) & (bj_grid < N)
+    bi_v = bi_grid[valid]
+    bj_v = bj_grid[valid]
+    blocks = Kt_blocks[valid]                      # (n_blocks, 6, 6)
+    rr, cc = np.meshgrid(np.arange(6), np.arange(6), indexing='ij')
+    rows = (6 * bi_v[:, None, None] + rr[None]).ravel()
+    cols = (6 * bj_v[:, None, None] + cc[None]).ravel()
+    data = blocks.ravel()
+    K = csc_matrix((data, (rows, cols)), shape=(dim, dim))
+    K.eliminate_zeros()
+    return K
+
+
 @cond_jit(nopython=True, cache=True)
 def _transform_groundstate_optimized(
     gs_cayley_scaled: np.ndarray,
@@ -338,11 +491,10 @@ def _apply_transforms_optimized(
     Parameters and return value are identical to ``_apply_transforms``.
     """
 
+    _validate_coordinate_definition(euler_definition, group_split, remove_factor_five)
+
     if isinstance(nonphosphate_map, bool):
         nonphosphate_map = [nonphosphate_map] * (len(gs) // 6)
-
-    if group_split and not euler_definition:
-        raise ValueError('The group_split option requires euler_definition to be set!')
 
     # ── Unit scaling on groundstate (cheap, O(N)) ──
     if remove_factor_five:
@@ -382,16 +534,16 @@ def _apply_transforms_optimized(
                     J_all[crick_flip_idx] * crick_sign[np.newaxis, np.newaxis, :]
                 )
 
-        # Convert raw sparse stiffness → dense (no unit scaling needed)
-        if hasattr(stiff, 'toarray'):
-            stiff_dense = stiff.toarray()
-        else:
-            stiff_dense = np.asarray(stiff, dtype=np.float64)
-
-        # K_final = J_combined^T @ K_raw @ J_combined  (block-by-block)
-        stiff = _apply_jacobian_blocks_to_stiff(
-            stiff_dense, J_all, _CGNAPLUS_BANDWIDTH,
-        )
+        # K_final = J_combined^T @ K_raw @ J_combined, computed block-by-block on
+        # the band and reassembled as a sparse CSC.  The block-diagonal Jacobian
+        # preserves the band, so we never densify: extract the raw band blocks,
+        # transform them, and build a sparse result.
+        N = J_all.shape[0]
+        dim = 6 * N
+        max_bd = (_CGNAPLUS_BANDWIDTH + 5) // 6
+        K_blocks = _extract_band_blocks(stiff, N, max_bd)
+        Kt_blocks = _apply_jacobian_blocks_banded(K_blocks, J_all, max_bd)
+        stiff = _assemble_band_blocks_csc(Kt_blocks, N, max_bd, dim)
 
         # Transform groundstate: Cayley→Euler + midstep→triad
         gs = _transform_groundstate_optimized(

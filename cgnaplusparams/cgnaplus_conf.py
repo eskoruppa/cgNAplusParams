@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import types
 import numpy as np
 from pathlib import Path
 
@@ -41,6 +43,7 @@ from .utils.se3_methods import (
     build_chain,
     params_to_chain,
     build_junctions,
+    juncs_to_params,
     build_cgnaplus_poses,
     bases_to_bp_poses,
     poses_to_juncs
@@ -54,6 +57,22 @@ CGNAPCONF_REQUIRED_SETTINGS_TRANS_NM            = True
 CGNAPCONF_REQUIRED_SETTINGS_ALIGNED_STRANDS     = True
 CGNAPCONF_REQUIRED_SETTINGS_REMOVE_FACTOR_FIVE  = True
 
+
+class hybridmethod:
+    """A method that can be called on the class *or* on an instance.
+
+    When accessed on an instance, the first positional argument bound to the
+    wrapped function is that instance; when accessed on the class, it is the class
+    itself (like :class:`classmethod`).  This lets a single method offer instance
+    convenience (state auto-filled from ``self``) while remaining usable as a
+    stateless class-level function.
+    """
+    def __init__(self, func):
+        self.func = func
+        functools.update_wrapper(self, func)
+
+    def __get__(self, obj, cls=None):
+        return types.MethodType(self.func, obj if obj is not None else cls)
 
 
 class CGNAPlusConf:
@@ -138,17 +157,25 @@ class CGNAPlusConf:
     ########################################################################################################################
 
     def change_single_pose(self, pose_name: str, pose: np.ndarray) -> None:
-        # change the poses
-        # self._bp_poses
-        # self._watson_base_poses
-        # self._crick_base_poses
-        # self._watson_phosphate_poses
-        # self._crick_phosphate_poses
-        # and params_Xd to reflect a change in a single pose. 
-        
+        """Set a single named pose and update the dependent caches.
 
-        self._ensure_params_Xd/()
-        self._ensure_poses()
+        Not yet implemented.  The intended behaviour is to overwrite the entry in
+        the relevant pose array (``_bp_poses`` / ``_watson_base_poses`` /
+        ``_crick_base_poses`` / ``_watson_phosphate_poses`` /
+        ``_crick_phosphate_poses``) and invalidate/recompute ``params_Xd`` so the
+        excess parameters stay consistent with the modified geometry.
+
+        Raises
+        ------
+        NotImplementedError
+            Always — this method is a stub.
+        """
+        raise NotImplementedError(
+            "change_single_pose() is not yet implemented."
+        )
+
+        # self._ensure_params_Xd()
+        # self._ensure_poses()
 
 
 
@@ -211,6 +238,7 @@ class CGNAPlusConf:
         self._ensure_params_Xd()
         return self._params_Xd
     
+    @property
     def params_Xd(self) -> np.ndarray:
         return self.excess_params
 
@@ -283,15 +311,16 @@ class CGNAPlusConf:
             return
         if not self._poses_set:
             raise AttributeError("Neither poses nore excess params set.")
+        # Called on the instance, so poses_to_params auto-recovers params_Xs from the
+        # attached CGNAPlusParams (no need to pass it explicitly).
         _params_Xd = self.poses_to_params(
             self._watson_base_poses,
             self._crick_base_poses,
             self._watson_phosphate_poses,
             self._crick_phosphate_poses,
             self._bp_poses,
-            as_exess=True,
-            params_Xs=self._cgnaplus_params.gs if self._cgnaplus_params is not None else None,
-            group_split=self._group_split
+            as_excess=True,
+            group_split=self._group_split,
         )
         self._params_Xd = _params_Xd
 
@@ -310,7 +339,7 @@ class CGNAPlusConf:
             self._watson_phosphate_poses,
             self._crick_phosphate_poses,
             self._bp_poses,
-            as_exess=False,
+            as_excess=False,
             params_Xs=None,
             group_split=self._group_split
         )
@@ -335,10 +364,14 @@ class CGNAPlusConf:
 
     @classmethod
     def excess_to_raw(cls, cgnaplus_params: CGNAPlusParams, excess: np.ndarray) -> np.ndarray:
+        """Combine the ground state and the excess (dynamic) parameters into the
+        raw junction coordinates, honouring the splitting convention.
+        """
+        gs = cgnaplus_params.gs
         if excess is None:
-            return cgnaplus_params.gs.copy()
+            return gs.copy()
         excess = np.asarray(excess, dtype=float)
-        ndof = cgnaplus_params.gs.shape[0]
+        ndof = gs.shape[0]
         if excess.ndim == 2:
             excess = excess[np.newaxis]   # (1, ndof, 6)
         if excess.shape[-1] != 6 or excess.shape[-2] != ndof:
@@ -346,11 +379,11 @@ class CGNAPlusConf:
                 f"excess shape {excess.shape} incompatible with "
                 f"ground state ndof={ndof}."
             )
-        n_snap = excess.shape[0]
-        raw = np.zeros((n_snap, ndof, 6))
-        for i in range(n_snap):
-            raw[i] = excess[i] + cgnaplus_params.gs
-        return raw
+
+        if cgnaplus_params.group_split:
+            juncs = build_junctions(gs, excess, group_split=True)
+            return juncs_to_params(juncs)
+        return excess + gs[np.newaxis]
     
     def _excess_to_raw(self) -> np.ndarray:
         if self._cgnaplus_params is None:
@@ -423,19 +456,24 @@ class CGNAPlusConf:
         return poses
 
 
-    @classmethod
+    @hybridmethod
     def poses_to_params(
-        cls,
+        this,
         watson_base_poses: np.ndarray,
         crick_base_poses: np.ndarray,
         watson_phosphate_poses: np.ndarray,
         crick_phosphate_poses: np.ndarray,
         bp_poses: np.ndarray | None = None,
-        as_exess: bool = False,
+        as_excess: bool = False,
         params_Xs: np.ndarray | None = None,
         group_split: bool = True,
         param_names_Xs: list[str] | None = None,
     ) -> np.ndarray:
+        # ``this`` is the instance when called as ``conf.poses_to_params(...)`` and the
+        # class when called as ``CGNAPlusConf.poses_to_params(...)``.  On an instance we
+        # can recover params_Xs from the attached CGNAPlusParams; on the class it must be
+        # supplied explicitly (see the as_excess branch below).
+        instance = this if isinstance(this, CGNAPlusConf) else None
 
         if watson_base_poses.shape[-2:] != (4, 4):
             raise ValueError(f"Expected watson_base_poses to have shape (n_snap, nbp, 4, 4) or (nbp, 4, 4), but got {watson_base_poses.shape}")
@@ -497,11 +535,14 @@ class CGNAPlusConf:
         nbp  = bp_poses.shape[-3]  
         param_names = cgnaplus_name_assignment("A" * nbp)
 
-        if as_exess:
+        if as_excess:
             if params_Xs is None:
-                if not hasattr(cls, '_cgnaplus_params') or cls._cgnaplus_params is None:
-                    raise ValueError("Ground state parameters not available.  Supply params_Xs or construct from CGNAPlusParams.")
-                params_Xs = cls._cgnaplus_params.gs
+                if instance is None or instance._cgnaplus_params is None:
+                    raise ValueError(
+                        "Ground state parameters not available.  Supply params_Xs, or call "
+                        "poses_to_params on a CGNAPlusConf instance constructed from CGNAPlusParams."
+                    )
+                params_Xs = instance._cgnaplus_params.gs
                 
             # Determine DOF ordering of params_Xs; may differ from the output canonical order.
             _param_names_Xs = param_names_Xs if param_names_Xs is not None else list(param_names)
@@ -529,7 +570,7 @@ class CGNAPlusConf:
                 c_gs_inv   = so3.se3_inverse_batch(so3.se3_euler2rotmat_batch(c_params_Xs))
                 c_params_Xd = so3.se3_rotmat2euler_batch(c_gs_inv @ c_juncs)
 
-                params_Xd = cls._combine_params(
+                params_Xd = this._combine_params(
                     bps_params_Xd,
                     bp_params_Xd,
                     w_params_Xd,
@@ -543,7 +584,7 @@ class CGNAPlusConf:
                 w_params  = so3.se3_rotmat2euler_batch(w_juncs)
                 c_params  = so3.se3_rotmat2euler_batch(c_juncs)
 
-                params = cls._combine_params(
+                params = this._combine_params(
                     bps_params,
                     bp_params,
                     w_params,
@@ -561,7 +602,7 @@ class CGNAPlusConf:
         bp_params = so3.se3_rotmat2euler_batch(bp_juncs)
         w_params  = so3.se3_rotmat2euler_batch(w_juncs)
         c_params  = so3.se3_rotmat2euler_batch(c_juncs)
-        params = cls._combine_params(
+        params = this._combine_params(
             bps_params,
             bp_params,
             w_params,
@@ -921,7 +962,7 @@ class CGNAPlusConf:
         pose_id   = int(name[LEN_POSE_NAMES:])
         if pose_type == BP_NAME:
             type_str = 'bp_poses'
-        if pose_type == WATSON_BASE_NAME:
+        elif pose_type == WATSON_BASE_NAME:
             type_str = 'watson_base_poses'
         elif pose_type == CRICK_BASE_NAME:
             type_str = 'crick_base_poses'
@@ -949,7 +990,7 @@ def confs_from_traj(
     ) -> list[CGNAPlusConf]:
     reader = read_dna(Path(filename))
 
-    # TODO: allow iteration through snaphots
+    # TODO: allow iteration through snapshots
 
     confs = []
 

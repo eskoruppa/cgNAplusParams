@@ -46,3 +46,7 @@
 # ignore pdf files
 **.pdf
 refs/
+
+# ignore debugs / issues
+**debug/
+**issues/

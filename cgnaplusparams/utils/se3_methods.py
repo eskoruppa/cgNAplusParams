@@ -168,6 +168,14 @@ def _build_junctions_batched(
     ) -> np.ndarray:
     """JIT-compiled loop over a flat batch of snapshots.
 
+    The ground-state SE(3) matrices do not depend on the snapshot, so for the
+    ``group_split`` path they are computed **once** and reused across all
+    snapshots, instead of being rebuilt inside every snapshot's inner loop.  This
+    is byte-identical to rebuilding them each time (same ``euler2rotmat`` matrices,
+    same matmul) but avoids an ``n_snap``-fold redundant ground-state conversion.
+    (The ``group_split=False`` path cannot hoist anything: its argument
+    ``groundstate[k] + excess[i, k]`` genuinely changes every snapshot.)
+
     Parameters
     ----------
     groundstate : np.ndarray, shape (ndof, 6)
@@ -175,7 +183,8 @@ def _build_junctions_batched(
     excess : np.ndarray, shape (n_snap, ndof, 6)
         Excess parameters; the first dimension is the flat snapshot index.
     group_split : bool
-        Passed through to ``_build_junctions``.
+        If True, combine at the group level (``R_gs @ R_excess``); otherwise add
+        in the algebra first.
 
     Returns
     -------
@@ -184,8 +193,18 @@ def _build_junctions_batched(
     n_snap = excess.shape[0]
     ndof = groundstate.shape[0]
     result = np.empty((n_snap, ndof, 4, 4))
-    for i in range(n_snap):
-        result[i] = _build_junctions(groundstate, excess[i], group_split)
+    if group_split:
+        # Precompute the ground-state junction matrices once.
+        gs_mats = np.empty((ndof, 4, 4))
+        for k in range(ndof):
+            gs_mats[k] = _se3_euler2rotmat_sv(groundstate[k])
+        for i in range(n_snap):
+            for k in range(ndof):
+                result[i, k] = gs_mats[k] @ _se3_euler2rotmat_sv(excess[i, k])
+    else:
+        for i in range(n_snap):
+            for k in range(ndof):
+                result[i, k] = _se3_euler2rotmat_sv(groundstate[k] + excess[i, k])
     return result
 
 

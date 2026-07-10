@@ -8,8 +8,24 @@ from ._so3 import so3
 
 from .cgnaplus_params import CGNAPlusParams, _apply_transforms
 from .cgnaplus_params import constructSeqParms
+from .utils.transforms import _validate_coordinate_definition
 from .utils.assignment_utils import cgnaplus_name_assignment
 from .utils.assignment_utils import INTER_BP_PARAM_NAME
+from .utils.assignment_utils import _dof_prefix
+from .utils.matrix_methods import symmetrize_stiffness
+
+
+def _inter_bp_mask(names: list[str]) -> np.ndarray:
+    """Boolean per-block mask selecting the inter-base-pair (``S``-type) DOFs.
+
+    Single source of truth for the inter-bp marginalisation: both the retained
+    parameter-name list and the DOF selection passed to the marginal routines
+    are derived from this mask, so they cannot drift apart.  The predicate
+    (exact prefix match ``_dof_prefix(name) == INTER_BP_PARAM_NAME``) matches the
+    convention used throughout the package (e.g. :func:`nonphosphate_dof_map`,
+    :func:`inter_bp_dof_indices`).
+    """
+    return np.array([_dof_prefix(name) == INTER_BP_PARAM_NAME for name in names], dtype=bool)
 
 
 class RBPParams(CGNAPlusParams):
@@ -43,6 +59,7 @@ class RBPParams(CGNAPlusParams):
             translations_in_nm: bool = True,
             include_stiffness: bool = True,
             remove_factor_five: bool = True,
+            symmetrize: bool = True,
             rotations_only: bool = False,
             ):
 
@@ -56,6 +73,7 @@ class RBPParams(CGNAPlusParams):
             aligned_strands=False,
             include_stiffness=include_stiffness,
             remove_factor_five=remove_factor_five,
+            symmetrize=symmetrize,
         )
         self._rotations_only = rotations_only
 
@@ -101,16 +119,18 @@ class RBPParams(CGNAPlusParams):
         gs, stiff = constructSeqParms(self._sequence, self._parameter_set_name)
 
         full_names = cgnaplus_name_assignment(self._sequence)
-        select_names = [INTER_BP_PARAM_NAME + "*"]
+
+        # Single source of truth for the inter-bp selection: the retained name
+        # list and the DOF marginalisation are both driven by the same mask.
+        select_mask = _inter_bp_mask(full_names)
+        param_names = [n for n, keep in zip(full_names, select_mask) if keep]
 
         # --- Schur-complement marginalisation to inter-bp DOFs ---
         if self._include_stiffness:
-            stiff = so3.matrix_marginal_assignment(stiff, select_names, full_names, block_dim=6)
+            stiff = so3.matrix_marginal(stiff, select_mask, block_dim=6)
             if sp.sparse.issparse(stiff):
                 stiff = stiff.toarray()
-        gs = so3.vector_marginal_assignment(gs, select_names, full_names, block_dim=6)
-
-        param_names = [n for n in full_names if n.startswith(INTER_BP_PARAM_NAME)]
+        gs = so3.vector_marginal(gs, select_mask, block_dim=6)
 
         gs, stiff = _apply_transforms(
             gs, stiff, True, param_names,
@@ -134,6 +154,8 @@ class RBPParams(CGNAPlusParams):
         self._gs_initialized = True
 
         if self._include_stiffness:
+            if self._symmetrize:
+                stiff = symmetrize_stiffness(stiff)
             self._stiffmat = stiff
             self._stiffmat_initialized = True
 
@@ -150,7 +172,21 @@ class RBPParams(CGNAPlusParams):
         ----
         Requires ``rbp_conf.RBPConf`` to accept an ``RBPParams`` instance as its
         first argument (see planned update to ``rbp_conf.py``).
+
+        Raises
+        ------
+        ValueError
+            If this instance was constructed with ``rotations_only=True``.
+            Building a configuration requires the full 6-DOF (rotation +
+            translation) parameters, which are unavailable in the
+            rotations-only marginal.
         """
+        if self._rotations_only:
+            raise ValueError(
+                "conf() requires the full 6-DOF parameters, but this RBPParams "
+                "was constructed with rotations_only=True. Rebuild with "
+                "rotations_only=False to generate configurations."
+            )
         from .rbp_conf import RBPConf
         return RBPConf(self, dynamic=dynamic)
 
@@ -168,6 +204,7 @@ class RBPParams(CGNAPlusParams):
         remove_factor_five: bool = True,
         translations_in_nm: bool = True,
         include_stiffness: bool = True,
+        symmetrize: bool = True,
         rotations_only: bool = False,
     ) -> RBPParams:
 
@@ -179,6 +216,7 @@ class RBPParams(CGNAPlusParams):
             translations_in_nm=translations_in_nm,
             include_stiffness=include_stiffness,
             remove_factor_five=remove_factor_five,
+            symmetrize=symmetrize,
             rotations_only=rotations_only,
         )
 
@@ -221,22 +259,21 @@ class RBPParams(CGNAPlusParams):
             )
 
         full_names = cgnap.param_names
-        select_names = [INTER_BP_PARAM_NAME + "*"]
+
+        # Single source of truth for the inter-bp selection (see _inter_bp_mask).
+        select_mask = _inter_bp_mask(full_names)
+        rbp_param_names = [n for n, keep in zip(full_names, select_mask) if keep]
 
         # --- Marginalise groundstate (already in (N, 6) form) ---
         gs_flat = so3.vecs2statevec(cgnap.gs)
-        gs_rbp_flat = so3.vector_marginal_assignment(
-            gs_flat, select_names, full_names, block_dim=6,
-        )
+        gs_rbp_flat = so3.vector_marginal(gs_flat, select_mask, block_dim=6)
         gs_rbp = so3.statevec2vecs(gs_rbp_flat, vdim=6)
-
-        rbp_param_names = [n for n in full_names if n.startswith(INTER_BP_PARAM_NAME)]
 
         # --- Marginalise stiffness (Schur complement) if available ---
         stiff_rbp = None
         if cgnap._stiffmat_initialized:
-            stiff_rbp = so3.matrix_marginal_assignment(
-                cgnap.stiffmat, select_names, full_names, block_dim=6,
+            stiff_rbp = so3.matrix_marginal(
+                cgnap.stiffmat, select_mask, block_dim=6,
             )
             if sp.sparse.issparse(stiff_rbp):
                 stiff_rbp = stiff_rbp.toarray()
@@ -248,6 +285,11 @@ class RBPParams(CGNAPlusParams):
             if stiff_rbp is not None:
                 stiff_rbp = so3.matrix_rotmarginal(stiff_rbp)
 
+        # --- Symmetrise the marginalised stiffness (Schur complement and the
+        #     rot-marginal both re-introduce a small asymmetry) ---
+        if stiff_rbp is not None and cgnap._symmetrize:
+            stiff_rbp = symmetrize_stiffness(stiff_rbp)
+
         # --- Build instance and inject pre-computed values ---
         instance = cls(
             cgnap._sequence,
@@ -257,6 +299,7 @@ class RBPParams(CGNAPlusParams):
             translations_in_nm=cgnap._translations_in_nm,
             include_stiffness=(stiff_rbp is not None),
             remove_factor_five=cgnap._remove_factor_five,
+            symmetrize=cgnap._symmetrize,
             rotations_only=rotations_only,
         )
         instance._set_precomputed(gs_rbp, stiff_rbp, rbp_param_names)
@@ -271,6 +314,7 @@ def rbpparams(
     remove_factor_five: bool = True,
     translations_in_nm: bool = True,
     include_stiffness: bool = True,
+    symmetrize: bool = True,
     rotations_only: bool = False,
 ) -> RBPParams:
     """Convenience factory for :class:`RBPParams`.  Mirrors the ``cgnaplus()``
@@ -283,6 +327,7 @@ def rbpparams(
         remove_factor_five=remove_factor_five,
         translations_in_nm=translations_in_nm,
         include_stiffness=include_stiffness,
+        symmetrize=symmetrize,
         rotations_only=rotations_only,
     )
 
@@ -294,6 +339,7 @@ def rbp_params(
     remove_factor_five: bool = True,
     translations_in_nm: bool = True,
     include_stiffness: bool = True,
+    symmetrize: bool = True,
     rotations_only: bool = False,
 ) -> RBPParams:
     """Convenience factory for :class:`RBPParams`.  Mirrors the ``cgnaplus()``
@@ -306,6 +352,7 @@ def rbp_params(
         remove_factor_five=remove_factor_five,
         translations_in_nm=translations_in_nm,
         include_stiffness=include_stiffness,
+        symmetrize=symmetrize,
         rotations_only=rotations_only,
     )
 
@@ -323,17 +370,20 @@ def cgnaplus2rbp(
     remove_factor_five: bool = True,
     rotations_only: bool = False,
     include_stiffness: bool = True,
+    symmetrize: bool = True,
 ) -> dict[str, np.ndarray | bool | str]:
     """Legacy dict-returning function.  Prefer the :class:`RBPParams` class."""
 
+    _validate_coordinate_definition(euler_definition, group_split, remove_factor_five)
+
     gs, stiff = constructSeqParms(sequence, parameter_set_name)
     names = cgnaplus_name_assignment(sequence)
-    select_names = [INTER_BP_PARAM_NAME + "*"]
+    select_mask = _inter_bp_mask(names)
     if include_stiffness:
-        stiff = so3.matrix_marginal_assignment(stiff, select_names, names, block_dim=6)
+        stiff = so3.matrix_marginal(stiff, select_mask, block_dim=6)
         if sp.sparse.issparse(stiff):
             stiff = stiff.toarray()
-    gs = so3.vector_marginal_assignment(gs, select_names, names, block_dim=6)
+    gs = so3.vector_marginal(gs, select_mask, block_dim=6)
 
     if remove_factor_five:
         factor = 5
@@ -355,8 +405,6 @@ def cgnaplus2rbp(
         gs = so3.se3_cayley2euler(gs)
 
     if group_split:
-        if not euler_definition:
-            raise ValueError('The group_split option requires euler_definition to be set!')
         if include_stiffness:
             gs, stiff = so3.algebra2group_params(
                 gs, stiff, rotation_first=True, translation_as_midstep=True, optimized=True,
@@ -368,6 +416,9 @@ def cgnaplus2rbp(
         gs = so3.vector_rotmarginal(so3.vecs2statevec(gs))
         if include_stiffness:
             stiff = so3.matrix_rotmarginal(stiff)
+
+    if include_stiffness and symmetrize:
+        stiff = symmetrize_stiffness(stiff)
 
     result = {
         "gs": gs,

@@ -9,6 +9,25 @@ from ..naming_conventions import (
 )
 
 
+def _dof_prefix(name: str) -> str:
+    """Return the parameter-type prefix of a DOF name.
+
+    A DOF name is a type prefix followed by a base-position index, e.g.
+    ``"S3" -> "S"`` or ``"W12" -> "W"``.  The prefix is the leading portion
+    before the trailing (decimal) index, obtained by stripping trailing digits.
+
+    This is the robust replacement for substring ``PREFIX in name`` membership
+    tests: an exact prefix comparison (``_dof_prefix(name) == PREFIX``) cannot
+    cross-classify DOFs should the type names ever be renamed to multi-character
+    or overlapping strings (e.g. ``"S"`` vs ``"SW"``), whereas ``"S" in "SW3"``
+    would spuriously match.
+    """
+    split = len(name)
+    while split > 0 and name[split - 1].isdigit():
+        split -= 1
+    return name[:split]
+
+
 def cgnaplus_name_assignment(
     seq: str, 
     param_names: list[str] = PARAM_BASENAMES
@@ -99,7 +118,7 @@ def nonphosphate_dof_map(seq: str, param_names: list[str] | None = None) -> np.n
     """
     if param_names is None:
         param_names = cgnaplus_name_assignment(seq)
-    map = [INTRA_BP_PARAM_NAME in name or INTER_BP_PARAM_NAME in name for name in param_names]
+    map = [_dof_prefix(name) in (INTRA_BP_PARAM_NAME, INTER_BP_PARAM_NAME) for name in param_names]
     return np.array(map, dtype=bool)
 
 
@@ -126,10 +145,8 @@ def dof_index_from_name(
         the name cannot be parsed or corresponds to a trimmed entry (e.g. ``"W0"``).
     """
     # Split trailing digits to recover prefix and base position index
-    split = len(dof_name)
-    while split > 0 and dof_name[split - 1].isdigit():
-        split -= 1
-    prefix, numeral = dof_name[:split], dof_name[split:]
+    prefix = _dof_prefix(dof_name)
+    numeral = dof_name[len(prefix):]
     if not numeral:
         return None
     bp_index = int(numeral)
@@ -175,7 +192,7 @@ def inter_bp_dof_indices(param_names: list[str]) -> np.ndarray:
     Returns:
         Numpy array of integer indices corresponding to inter-base-pair DOFs.
     """
-    return np.array([i for i, name in enumerate(param_names) if INTER_BP_PARAM_NAME in name], dtype=int)
+    return np.array([i for i, name in enumerate(param_names) if _dof_prefix(name) == INTER_BP_PARAM_NAME], dtype=int)
 
 def intra_bp_dof_indices(param_names: list[str]) -> np.ndarray:
     """
@@ -190,7 +207,7 @@ def intra_bp_dof_indices(param_names: list[str]) -> np.ndarray:
     Returns:
         Numpy array of integer indices corresponding to intra-base-pair DOFs.
     """
-    return np.array([i for i, name in enumerate(param_names) if INTRA_BP_PARAM_NAME in name], dtype=int)
+    return np.array([i for i, name in enumerate(param_names) if _dof_prefix(name) == INTRA_BP_PARAM_NAME], dtype=int)
 
 def watson_phosphate_dof_indices(param_names: list[str]) -> np.ndarray:
     """
@@ -205,7 +222,7 @@ def watson_phosphate_dof_indices(param_names: list[str]) -> np.ndarray:
     Returns:
         Numpy array of integer indices corresponding to Watson-phosphate DOFs.
     """
-    return np.array([i for i, name in enumerate(param_names) if B2P_WATSON_PARAM_NAME in name], dtype=int)
+    return np.array([i for i, name in enumerate(param_names) if _dof_prefix(name) == B2P_WATSON_PARAM_NAME], dtype=int)
 
 def crick_phosphate_dof_indices(param_names: list[str]) -> np.ndarray:
     """
@@ -220,7 +237,7 @@ def crick_phosphate_dof_indices(param_names: list[str]) -> np.ndarray:
     Returns:
         Numpy array of integer indices corresponding to Crick-phosphate DOFs.
     """
-    return np.array([i for i, name in enumerate(param_names) if B2P_CRICK_PARAM_NAME in name], dtype=int)
+    return np.array([i for i, name in enumerate(param_names) if _dof_prefix(name) == B2P_CRICK_PARAM_NAME], dtype=int)
 
 def phosphate_dof_indices(param_names: list[str]) -> np.ndarray:
     """
@@ -236,4 +253,4 @@ def phosphate_dof_indices(param_names: list[str]) -> np.ndarray:
     Returns:
         Numpy array of integer indices corresponding to base-to-phosphate DOFs.
     """
-    return np.array([i for i, name in enumerate(param_names) if (B2P_WATSON_PARAM_NAME in name) or (B2P_CRICK_PARAM_NAME in name)], dtype=int)
+    return np.array([i for i, name in enumerate(param_names) if _dof_prefix(name) in (B2P_WATSON_PARAM_NAME, B2P_CRICK_PARAM_NAME)], dtype=int)

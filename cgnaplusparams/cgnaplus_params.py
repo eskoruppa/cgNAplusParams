@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 import numpy as np
 import scipy, scipy.io
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, spmatrix, issparse
 from scipy.sparse.linalg import spsolve
 from scipy.linalg import get_lapack_funcs
 
@@ -14,6 +15,9 @@ from .utils.assignment_utils import cgnaplus_name_assignment, nonphosphate_dof_m
 from .utils.assignment_utils import dof_index
 from .utils.crick_flip import apply_crick_flip
 from .utils.transforms import _apply_transforms_optimized, _apply_transforms
+from .utils.transforms import _validate_coordinate_definition
+from .utils.matrix_methods import symmetrize_stiffness
+from .utils.rescale_stiffness import rescale_stiff_dofs
 
 CGNAPLUSPARAMS_PARAMSPATH = os.path.join(os.path.dirname(__file__), 'Parametersets/')
 
@@ -286,8 +290,10 @@ def _seq_edit(seq):
 	s = seq.upper()
 	while s.rfind('_')>0:
 		if s[s.rfind('_')-1].isdigit():
-			print("Please write the input sequence correctly. Two or more _ can't be put consequently. You can use the brackets. i.e. A_2_2 can be written as [A_2]_2")
-			exit()
+			raise ValueError(
+				"Invalid input sequence: two or more '_' cannot be placed consecutively. "
+				"Use brackets instead, e.g. A_2_2 can be written as [A_2]_2."
+			)
 		if s[s.rfind('_')-1] != ']':
 			a = int(_mult(s))
 			s = s[:s.rfind('_')-1]+ s[s.rfind('_')-1]*a +  s[s.rfind('_')+1+len(str((a))):]
@@ -343,10 +349,41 @@ def _mult(seq):
 ########################################################################################################################
 
 class CGNAPlusParams:
+    """Sequence-dependent cgNA+ ground state and stiffness for a DNA/RNA oligomer.
+
+    The instance lazily assembles the raw banded stiffness and ground state
+    (:func:`constructSeqParms`) and then applies a chain of coordinate-definition
+    transforms controlled by the constructor flags.
+
+    Coordinate definitions
+    ----------------------
+    * ``remove_factor_five``: divide the rotational ground state by 5, mapping the
+      shipped cgNA+ scaled Cayley vector ``η = 10·tan(θ/2)·n̂`` to the geometric
+      Cayley vector ``c = 2·tan(θ/2)·n̂`` (the "s=2" convention of Skoruppa &
+      Schiessel 2024).  **Required** whenever ``euler_definition`` is set.
+    * ``translations_in_nm``: divide translations by 10 (Ångström → nm).
+    * ``euler_definition``: convert the rotational coordinate from Cayley to the
+      Euler / rotation-vector ``Ω = θ·n̂``.
+    * ``group_split``: express inter/intra translations in the reference (first
+      triad) frame instead of the mid-step frame, and reparametrise rotational
+      fluctuations as a Lie-group right multiplication (see the ``stiffmat`` and
+      ``group_split`` docstrings for the important semantic caveat).
+
+    .. warning::
+       The **stiffness matrix is a local (quadratic) approximation** for every
+       definition except plain Cayley (``euler_definition=False``).  With
+       ``euler_definition=True`` it is linearised about the ground state, and with
+       ``group_split=True`` (the default) it is the Hessian with respect to
+       *Lie-group tangent* fluctuations — **not** additive differences of the
+       stored coordinates.  Evaluating ``½·(x − gs)ᵀ·K·(x − gs)`` with naive
+       coordinate differences is therefore only exact for ``euler_definition=
+       False``; for the default flags it incurs an O(‖Ω₀‖) error (a few percent
+       for realistic fluctuations).  See :attr:`stiffmat`.
+    """
 
     def __init__(
-            self, 
-            sequence: str, 
+            self,
+            sequence: str,
             parameter_set_name: str = CGNAPLUSPARAMS_DEFAULT_PARAMETER_SET_NAME,
             euler_definition: bool = True,
             group_split: bool = True,
@@ -354,6 +391,7 @@ class CGNAPlusParams:
             aligned_strands: bool = False,
             include_stiffness: bool = True,
             remove_factor_five: bool = True,
+            symmetrize: bool = True,
             use_optimized: bool = True,
             ):
 
@@ -364,6 +402,7 @@ class CGNAPlusParams:
         self._aligned_strands = aligned_strands
         self._include_stiffness = include_stiffness
         self._remove_factor_five = remove_factor_five
+        self._symmetrize = symmetrize
 
         self._sequence = sequence 
 
@@ -418,6 +457,15 @@ class CGNAPlusParams:
         self._gs_initialized = True
 
         if self._include_stiffness:
+            if self._symmetrize:
+                stiff = symmetrize_stiffness(stiff)
+            # Normalise the stiffness to a consistent CSC format across all
+            # coordinate definitions and code paths (the optimized Euler path
+            # yields CSC, the Cayley scaling path CSR, and the reference
+            # use_optimized=False path a dense array).  CGNAPlusParams stiffness is
+            # always banded, so CSC is the appropriate uniform type; consumers
+            # needing a dense array call ``.toarray()``.
+            stiff = stiff.tocsc() if issparse(stiff) else csc_matrix(stiff)
             self._stiffmat = stiff
             self._stiffmat_initialized = True
 
@@ -472,6 +520,12 @@ class CGNAPlusParams:
             self._gs_initialized = False
             self._stiffmat_initialized = False
 
+    def set_symmetrize(self, symmetrize: bool) -> None:
+        if symmetrize != self._symmetrize:
+            self._symmetrize = symmetrize
+            # only the stiffness matrix is affected by symmetrisation
+            self._stiffmat_initialized = False
+
     ########################################################################################################################
     # Properties
     ########################################################################################################################
@@ -497,8 +551,17 @@ class CGNAPlusParams:
     
     @property
     def group_split(self) -> bool:
+        """Whether the algebra→group split is applied (default ``True``).
+
+        When ``True`` the translational ground state is expressed in the
+        reference (first-triad) frame and the stiffness measures *Lie-group
+        tangent* rotational fluctuations (``R = R₀·exp(Δ̂)``).  When ``False``
+        the "algebra" convention is used: additive Euler/Cayley fluctuations and
+        mid-step-frame translations.  See :attr:`stiffmat` for why this changes
+        how the stiffness must be consumed.
+        """
         return self._group_split
-    
+
     @property
     def splitting_definition(self) -> str:
         if self._group_split:
@@ -524,7 +587,11 @@ class CGNAPlusParams:
     @property
     def remove_factor_five(self) -> bool:
         return self._remove_factor_five
-    
+
+    @property
+    def symmetrize(self) -> bool:
+        return self._symmetrize
+
     @property
     def gs(self) -> np.ndarray:
         if not self._gs_initialized:
@@ -536,18 +603,86 @@ class CGNAPlusParams:
         return self.gs
     
     @property
-    def stiffmat(self) -> np.ndarray:
+    def stiffmat(self) -> np.ndarray | spmatrix:
+        r"""Sequence-dependent stiffness (precision) matrix in the current definition.
+
+        .. warning::
+           **Footgun — the stiffness is only an exact quadratic energy Hessian in
+           the plain Cayley definition** (``euler_definition=False``).  The cgNA+
+           free energy is Gaussian in the (scaled) Cayley coordinates, so there
+           ``U(x) = ½·(x − gs)ᵀ·K·(x − gs)`` with additive ``x − gs`` is exact.
+
+           * ``euler_definition=True`` linearises the Cayley→Euler map about the
+             ground state, so ``K`` becomes a *local* approximation valid for
+             small fluctuations.
+           * ``group_split=True`` (the **default**) makes ``K`` the Hessian with
+             respect to *Lie-group tangent* fluctuations — the rotational
+             deviation is ``Δ = log(R₀ᵀ R)`` (with ``R = R₀·exp(Δ̂)``), **not**
+             ``Ω − Ω₀``.  Feeding additive coordinate differences
+             ``x − gs`` into ``½·(x − gs)ᵀ·K·(x − gs)`` then over/under-counts the
+             rotational terms by an O(‖Ω₀‖) factor (a few percent for realistic
+             base-pair fluctuations).  This convention is what makes the stiffness
+             consistent with SE(3) frame reconstruction (composing ``exp(Δ̂)``);
+             it is intentional, but callers doing direct Gaussian evaluation or
+             sampling in coordinate space should use ``group_split=False`` (and,
+             for an exact energy, ``euler_definition=False``).
+
+        Notes
+        -----
+        The return type is **not always dense.** For ``CGNAPlusParams`` it is a
+        **banded scipy sparse** matrix (CSC) in *every* coordinate definition: the
+        Cayley→Euler and algebra→group transforms are block-diagonal (per-DOF), so
+        they preserve the raw band and the assembled stiffness stays sparse
+        (~0.6 % nonzero at 400 bp).  It is **dense** (``numpy.ndarray``) only for
+        ``RBPParams``, whose Schur-complement marginal over the phosphate DOFs is
+        genuinely full.  Consumers that require a dense array should call
+        ``.toarray()``.
+        """
         if not self._stiffmat_initialized:
             self._init_params(sequence=None, include_stiffness=True)
         return self._stiffmat
-    
+
     @property
-    def stiffness(self) -> np.ndarray:
+    def stiffness(self) -> np.ndarray | spmatrix:
         return self.stiffmat
-    
+
     @property
-    def stiffness_matrix(self) -> np.ndarray:
+    def stiffness_matrix(self) -> np.ndarray | spmatrix:
         return self.stiffmat
+
+    def rescaled_stiffmat(self, factors: Sequence[float]) -> np.ndarray | spmatrix:
+        r"""Return a copy of the stiffness matrix with each per-junction DOF
+        consistently rescaled by ``factors`` across the whole system.
+
+        Delegates to
+        :func:`~cgnaplusparams.utils.rescale_stiffness.rescale_stiff_dofs`: DOF
+        ``k`` is rescaled so that its diagonal stiffness block entry is multiplied
+        by ``factors[k]`` (its rows and columns by ``sqrt(factors[k])``, and the
+        coupling between DOFs ``k`` and ``j`` by ``sqrt(factors[k]·factors[j])``).
+        A factor of ``1.0`` leaves a DOF unchanged.
+
+        The returned matrix is a **fresh object** — ``self.stiffmat`` is not
+        modified — and keeps the sparse/dense type of :attr:`stiffmat`.
+
+        Parameters
+        ----------
+        factors : sequence of positive floats
+            One factor per per-junction DOF.  Its length must equal the DOF count
+            of the current representation (``self.gs.shape[-1]`` — 6 for the full
+            model, 3 for a rotations-only :class:`RBPParams`).
+
+        Returns
+        -------
+        numpy.ndarray or scipy.sparse matrix
+            Rescaled copy of the stiffness matrix (same type as :attr:`stiffmat`).
+        """
+        block_dim = self.gs.shape[-1]
+        if len(factors) != block_dim:
+            raise ValueError(
+                f"factors must have length {block_dim} (the per-junction DOF count "
+                f"of this representation), got {len(factors)}."
+            )
+        return rescale_stiff_dofs(self.stiffmat, factors, ndims=block_dim)
 
     @property
     def param_names(self) -> list[str]:
@@ -569,30 +704,79 @@ class CGNAPlusParams:
     def param_index(self, name: str) -> int | None:
         return dof_index(name, self.param_names)
 
+    def with_aligned_strands(self) -> "CGNAPlusParams":
+        """Return an equivalent instance with ``aligned_strands=True``.
+
+        ``aligned_strands=True`` differs from ``aligned_strands=False`` by exactly
+        the Crick base-to-phosphate sign flip (:func:`apply_crick_flip`) — the
+        final, sign-only step of the coordinate pipeline.  When this instance has
+        already been computed, the aligned equivalent is therefore built cheaply by
+        crick-flipping the cached ground state (and stiffness, if present), with no
+        re-solve of the banded system and no re-application of the coordinate
+        transforms.
+
+        Returns ``self`` unchanged if it is already aligned.
+
+        Notes
+        -----
+        Only the ``aligned_strands`` flag is changed; all other coordinate-definition
+        settings (``euler_definition``, ``group_split``, ``translations_in_nm``,
+        ``remove_factor_five``) are preserved.
+        """
+        if self._aligned_strands:
+            return self
+
+        gs_flat = so3.vecs2statevec(self.gs)
+        stiff = self.stiffmat if self._include_stiffness else None
+        gs_flat, stiff = apply_crick_flip(gs_flat, stiff, self.param_names)
+        gs = so3.statevec2vecs(gs_flat, vdim=6)
+
+        clone = CGNAPlusParams(
+            sequence=self._sequence,
+            parameter_set_name=self._parameter_set_name,
+            euler_definition=self._euler_definition,
+            group_split=self._group_split,
+            translations_in_nm=self._translations_in_nm,
+            aligned_strands=True,
+            include_stiffness=self._include_stiffness,
+            remove_factor_five=self._remove_factor_five,
+            symmetrize=self._symmetrize,
+            use_optimized=self._use_optimized,
+        )
+        clone._set_precomputed(gs, stiff, self.param_names)
+        return clone
+
     def conf(self, dynamic: np.ndarray | None = None):
-        """Return a :class:`~cgnaplus_conf.CGNAplusConf` for the current
+        """Return a :class:`~cgnaplus_conf.CGNAPlusConf` for the current
         sequence and parameters.
+
+        Frame reconstruction requires the aligned-strands coordinate convention, so
+        if this instance was created with ``aligned_strands=False`` an aligned
+        equivalent is obtained automatically via :meth:`with_aligned_strands`
+        (a cheap Crick sign flip — no recompute).
 
         Parameters
         ----------
-        dynamic : optional deformation array added on top of the ground state
-            when constructing the frame chain.
+        dynamic : optional excess (dynamic) deformation array added on top of the
+            ground state when constructing the frame chain.  Passed through to
+            :meth:`CGNAPlusConf.from_params` as its ``excess`` argument.
 
         Returns
         -------
-        CGNAplusConf
+        CGNAPlusConf
             Lazy object exposing ``bp_poses``, ``watson_base_poses``,
             ``crick_base_poses``, ``watson_phosphate_poses``,
             ``crick_phosphate_poses``, and ``named_poses``.
 
-        Note
-        ----
-        Requires ``cgnaplus_conf.CGNAplusConf`` to accept a ``CGNAPlusParams``
-        instance as its first argument (see planned update to
-        ``cgnaplus_conf.py``).
+        Notes
+        -----
+        Reconstruction additionally requires ``euler_definition=True``,
+        ``translations_in_nm=True`` and ``remove_factor_five=True`` (all defaults);
+        if any of those differ, :meth:`CGNAPlusConf.from_params` raises a descriptive
+        ``ValueError``.
         """
         from .cgnaplus_conf import CGNAPlusConf
-        return CGNAPlusConf.from_params(self, dynamic=dynamic)
+        return CGNAPlusConf.from_params(self.with_aligned_strands(), excess=dynamic)
 
     def to_rbp(self, rotations_only: bool = False):
         """Return an :class:`~rbp.RBP` instance marginalised to inter-base-pair
@@ -627,6 +811,7 @@ class CGNAPlusParams:
             translations_in_nm=self._translations_in_nm,
             include_stiffness=self._include_stiffness,
             remove_factor_five=self._remove_factor_five,
+            symmetrize=self._symmetrize,
             rotations_only=rotations_only,
         )
     
@@ -669,16 +854,17 @@ class CGNAPlusParams:
 ########################################################################################################################
 
 def cgnaplusparams(
-    sequence: str, 
+    sequence: str,
     parameter_set_name: str = CGNAPLUSPARAMS_DEFAULT_PARAMETER_SET_NAME,
     euler_definition: bool = True,
     group_split: bool = True,
     remove_factor_five: bool = True,
     translations_in_nm: bool = True,
     include_stiffness: bool = True,
-    aligned_strands: bool = False, 
+    aligned_strands: bool = False,
+    symmetrize: bool = True,
 ) -> CGNAPlusParams:
-    
+
     return CGNAPlusParams(
         sequence=sequence,
         parameter_set_name=parameter_set_name,
@@ -687,20 +873,22 @@ def cgnaplusparams(
         remove_factor_five=remove_factor_five,
         translations_in_nm=translations_in_nm,
         include_stiffness=include_stiffness,
-        aligned_strands=aligned_strands
+        aligned_strands=aligned_strands,
+        symmetrize=symmetrize,
     )
 
 def cgnaplus_params(
-    sequence: str, 
+    sequence: str,
     parameter_set_name: str = CGNAPLUSPARAMS_DEFAULT_PARAMETER_SET_NAME,
     euler_definition: bool = True,
     group_split: bool = True,
     remove_factor_five: bool = True,
     translations_in_nm: bool = True,
     include_stiffness: bool = True,
-    aligned_strands: bool = False, 
+    aligned_strands: bool = False,
+    symmetrize: bool = True,
 ) -> CGNAPlusParams:
-    
+
     return CGNAPlusParams(
         sequence=sequence,
         parameter_set_name=parameter_set_name,
@@ -709,7 +897,8 @@ def cgnaplus_params(
         remove_factor_five=remove_factor_five,
         translations_in_nm=translations_in_nm,
         include_stiffness=include_stiffness,
-        aligned_strands=aligned_strands
+        aligned_strands=aligned_strands,
+        symmetrize=symmetrize,
     )
 
 
@@ -721,9 +910,12 @@ def cgnaplusparams_legacy(
     remove_factor_five: bool = True,
     translations_in_nm: bool = True,
     include_stiffness: bool = True,
-    aligned_strands: bool = False
+    aligned_strands: bool = False,
+    symmetrize: bool = True,
     ) -> dict[str, np.ndarray | bool | str]:
-    
+
+    _validate_coordinate_definition(euler_definition, group_split, remove_factor_five)
+
     gs, stiff = constructSeqParms(sequence, parameter_set_name)
 
     param_names = cgnaplus_name_assignment(sequence)
@@ -755,13 +947,18 @@ def cgnaplusparams_legacy(
         gs = so3.se3_cayley2euler(gs)
 
     if group_split:
-        if not euler_definition:
-            raise ValueError('The group_split option requires euler_definition to be set!')
         if include_stiffness:
-            
-            gs,stiff = so3.algebra2group_params(gs, stiff, rotation_first=True, translation_as_midstep=nonphosphate_map, optimized=True) 
+
+            gs,stiff = so3.algebra2group_params(gs, stiff, rotation_first=True, translation_as_midstep=nonphosphate_map, optimized=True)
         else:
             gs = so3.midstep2triad(gs)
+
+    if include_stiffness and symmetrize:
+        stiff = symmetrize_stiffness(stiff)
+
+    # Normalise the stiffness to a consistent CSC format (see _init_params).
+    if include_stiffness:
+        stiff = stiff.tocsc() if issparse(stiff) else csc_matrix(stiff)
 
     result = {
         "gs": gs,
