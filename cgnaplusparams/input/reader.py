@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import io
 import sys
@@ -7,10 +9,12 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
-import mdtraj as md
 import numpy as np
+
+if TYPE_CHECKING:
+    import mdtraj as md
 
 try:
     from .reader_utils import (
@@ -33,6 +37,8 @@ _PDB_CHAIN_CHARS = string.ascii_uppercase + string.ascii_lowercase + string.digi
 
 
 def _load_cif_via_gemmi(path: str) -> md.Trajectory:
+    import mdtraj as md
+
     try:
         import gemmi
     except ImportError as exc:
@@ -74,6 +80,8 @@ def _load_cif_via_gemmi(path: str) -> md.Trajectory:
 
 
 def _load_structure_or_trajectory(path: str | Path, topology: Optional[str]) -> md.Trajectory:
+    import mdtraj as md
+
     ext = Path(path).suffix.lower()
     if ext in (".cif", ".mmcif"):
         if topology is not None:

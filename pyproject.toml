@@ -16,6 +16,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Required only for reading structures/trajectories via read_dna() /
+# confs_from_traj(). gemmi is additionally needed for CIF / mmCIF input.
+read = [
+    "mdtraj",
+    "gemmi",
+]
+
 # Install these only when *not* using the bundled git submodules
 # (cgnaplusparams/SO3/ and cgnaplusparams/pyConDec/).
 # With a recursive clone they are already present and no extra install step
